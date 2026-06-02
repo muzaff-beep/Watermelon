@@ -43,15 +43,15 @@ class Phase2Extractor(
     private fun extractOne(uriString: String): ContentValues? = runCatching {
         val uri = Uri.parse(uriString)
         val retriever = MediaMetadataRetriever()
-        retriever.use { r ->
-            r.setDataSource(context, uri)
-            val duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+        try {
+            retriever.setDataSource(context, uri)
+            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            val width = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
                 ?.toIntOrNull() ?: 0
-            val height = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
                 ?.toIntOrNull() ?: 0
-            val mime = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE) ?: ""
+            val mime = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE) ?: ""
             val (displayName, fileSize, parentFolder) = queryMediaStoreBasics(uri)
             ContentValues().apply {
                 put("mediaId", uriString)
@@ -63,6 +63,8 @@ class Phase2Extractor(
                 put("height", height)
                 put("mimeType", mime)
             }
+        } finally {
+            retriever.release()
         }
     }.getOrNull()
 
