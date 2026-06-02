@@ -21,9 +21,10 @@ import java.io.File
  */
 class SubtitleRepositoryImpl(
     private val context: Context,
-    private val apiClient: SubtitleApiClient = SubtitleApiClient(),
-    private val downloadClient: HttpClient = HttpClient(Android)
+    private val apiClient: SubtitleApiClient = SubtitleApiClient()
 ) : SubtitleRepository {
+
+    private val downloadClient: HttpClient by lazy { HttpClient(Android) }
 
     private val cacheDir: File by lazy {
         File(context.cacheDir, "subtitles").apply { mkdirs() }
