@@ -2,7 +2,7 @@
 
 Offline-first, privacy-respecting local video player for Android (mobile + TV), engineered
 RTL-native for Persian/Arabic with a signature **VHS Visual Seeker**. Zero telemetry, minimum
-permission footprint, folder-centric navigation.
+permission footprint, folder-centric navigation. 
 
 - **minSdk 23** (Android 6.0) · **targetSdk 35** (Android 15) · Mobile + Android TV
 - Offline-first · Folder-centric · RTL-native · Privacy by default
