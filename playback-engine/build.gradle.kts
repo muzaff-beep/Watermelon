@@ -15,7 +15,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+        // Media3 session APIs (e.g. MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS)
+        // are annotated @UnstableApi. Opt in module-wide rather than at each call site.
+        freeCompilerArgs += "-opt-in=androidx.media3.common.util.UnstableApi"
+    }
 }
 
 dependencies {
