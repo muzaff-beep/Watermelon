@@ -84,15 +84,15 @@ class Phase1Sweep(private val contentResolver: ContentResolver) {
 
     /** Group flat rows into a one-level folder tree (empty directories are hidden). */
     private fun buildFolderTree(rows: List<SweepRow>): List<FolderNode> =
-        rows.groupBy { it.relativePath.ifEmpty { it.bucketName } }
-            .filterValues { it.isNotEmpty() }
-            .map { (path, items) ->
-                FolderNode(
-                    path = path,
-                    displayName = items.first().bucketName,
-                    itemCount = items.size,
-                    children = emptyList()
-                )
-            }
-            .sortedBy { it.displayName.lowercase() }
+    rows.groupBy { it.bucketName }
+        .filterValues { it.isNotEmpty() }
+        .map { (bucketName, items) ->
+            FolderNode(
+                path = bucketName,          // must match Phase 2's parentFolder (BUCKET_DISPLAY_NAME)
+                displayName = bucketName,
+                itemCount = items.size,
+                children = emptyList()
+            )
+        }
+        .sortedBy { it.displayName.lowercase() }
 }
