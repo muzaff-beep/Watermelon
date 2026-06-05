@@ -52,7 +52,11 @@ fun VelocityGuardImage(
 
     // MediaStore thumbnail — cheap, loaded once, available while scrolling.
     val fastThumb by produceState<Bitmap?>(initialValue = null, uri) {
-        value = if (uri.isNullOrEmpty()) null else withContext(Dispatchers.IO) {
+        if (uri.isNullOrEmpty()) {
+            value = null
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     context.contentResolver.loadThumbnail(
