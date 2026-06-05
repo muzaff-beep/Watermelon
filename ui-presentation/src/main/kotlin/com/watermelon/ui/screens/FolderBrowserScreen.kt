@@ -2,17 +2,27 @@ package com.watermelon.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -28,8 +38,9 @@ enum class FolderLayout { LIST, GRID }
 enum class FolderSort { NAME, DATE, SIZE, RESOLUTION }
 
 /**
- * Folder tree browser with grid/list toggle and sort. Folder-first layout; empty directories
- * are hidden upstream by Phase 1. MVI: refresh routed through the VM (Teams §6).
+ * Folder browser. Folders are grouped into labeled sections by storage volume
+ * ("Internal storage" / "SD card"), with a working grid/list toggle and sort selector.
+ * Chosen layout/sort are local UI state seeded from the incoming defaults.
  */
 @Composable
 fun FolderBrowserScreen(
@@ -40,36 +51,119 @@ fun FolderBrowserScreen(
     modifier: Modifier = Modifier
 ) {
     val folders by viewModel.folderTree.collectAsStateWithLifecycle()
-    val sorted = folders.sortedWith(sortComparator(sort))
 
-    if (sorted.isEmpty()) {
-        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No media folders found", style = MaterialTheme.typography.bodyLarge)
-        }
-        return
+    var currentLayout by remember { mutableStateOf(layout) }
+    var currentSort by remember { mutableStateOf(sort) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
+
+    // Group by storage volume (internal sorts first alphabetically), sorted within each group.
+    val byVolume = remember(folders, currentSort) {
+        folders.groupBy { it.volume }
+            .toSortedMap()
+            .mapValues { (_, v) -> v.sortedWith(sortComparator(currentSort)) }
     }
 
-    when (layout) {
-        FolderLayout.LIST -> LazyColumn(
-            modifier = modifier.fillMaxSize().padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+    Column(modifier = modifier.fillMaxSize()) {
+
+        // --- Toolbar: layout toggle + sort selector ---------------------------------
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            items(sorted, key = { it.path }) { folder ->
-                FolderListItem(folder = folder, onClick = onFolderClick)
+            TextButton(onClick = {
+                currentLayout = if (currentLayout == FolderLayout.LIST) {
+                    FolderLayout.GRID
+                } else {
+                    FolderLayout.LIST
+                }
+            }) {
+                Text(if (currentLayout == FolderLayout.LIST) "Grid view" else "List view")
+            }
+
+            Box {
+                TextButton(onClick = { sortMenuOpen = true }) {
+                    Text("Sort: ${currentSort.label()}")
+                }
+                DropdownMenu(
+                    expanded = sortMenuOpen,
+                    onDismissRequest = { sortMenuOpen = false }
+                ) {
+                    FolderSort.values().forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label()) },
+                            onClick = {
+                                currentSort = option
+                                sortMenuOpen = false
+                            }
+                        )
+                    }
+                }
             }
         }
 
-        FolderLayout.GRID -> LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
-            modifier = modifier.fillMaxSize().padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            gridItems(sorted, key = { it.path }) { folder ->
-                FolderListItem(folder = folder, onClick = onFolderClick)
+        // --- Content ----------------------------------------------------------------
+        if (folders.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No media folders found", style = MaterialTheme.typography.bodyLarge)
+            }
+            return@Column
+        }
+
+        when (currentLayout) {
+            FolderLayout.LIST -> LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                byVolume.forEach { (volume, vfolders) ->
+                    item(key = "hdr-$volume") { VolumeHeader(volume) }
+                    items(vfolders, key = { it.path }) { folder ->
+                        FolderListItem(folder = folder, onClick = onFolderClick)
+                    }
+                }
+            }
+
+            FolderLayout.GRID -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 160.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                byVolume.forEach { (volume, vfolders) ->
+                    item(key = "hdr-$volume", span = { GridItemSpan(maxLineSpan) }) {
+                        VolumeHeader(volume)
+                    }
+                    gridItems(vfolders, key = { it.path }) { folder ->
+                        FolderListItem(folder = folder, onClick = onFolderClick)
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun VolumeHeader(volume: String) {
+    Text(
+        text = volume,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    )
+}
+
+private fun FolderSort.label(): String = when (this) {
+    FolderSort.NAME -> "Name"
+    FolderSort.DATE -> "Date"
+    FolderSort.SIZE -> "Count"
+    FolderSort.RESOLUTION -> "Resolution"
 }
 
 private fun sortComparator(sort: FolderSort): Comparator<FolderNode> = when (sort) {
