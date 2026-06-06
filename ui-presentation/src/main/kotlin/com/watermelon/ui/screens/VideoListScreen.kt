@@ -150,7 +150,7 @@ fun VideoListScreen(
 
 @Composable
 private fun VideoRow(item: MediaItem, itemSize: ItemSize, isScrollingFast: Boolean, onClick: () -> Unit) {
-    val (thumbW, thumbH): Pair<Dp, Dp> = when (itemSize) {
+    val (thumbW, thumbH) = when (itemSize) {
         ItemSize.SMALL  -> 52.dp to 32.dp
         ItemSize.MEDIUM -> 72.dp to 44.dp
         ItemSize.LARGE  -> 96.dp to 60.dp
