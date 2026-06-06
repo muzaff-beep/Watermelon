@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,26 +36,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.watermelon.common.model.MediaItem
 import com.watermelon.ui.components.VelocityGuardImage
 import com.watermelon.ui.viewmodel.VideoListViewModel
 import kotlinx.coroutines.delay
 
-// ── Sort enum ─────────────────────────────────────────────────────────────────
-
 private enum class VideoSort(val label: String) { NAME("Name"), DURATION("Duration") }
 
-// ── Screen ────────────────────────────────────────────────────────────────────
-
 /**
- * Video list for a single folder. Features:
- *  - Pull-to-refresh triggers [onRefresh] (wire to VideoListViewModel.refresh()).
- *  - Size picker (S/M/L) adjusts thumbnail and row density.
- *  - Sort by name or duration with ascending / descending toggle.
- *  - Per-row metadata: format, quality, duration, file size.
- *
- * NOTE: add fun refresh() to VideoListViewModel that calls mediaRepository.refreshIndex().
+ * Video list for a single folder.
+ * - ⭐ badge on items where [MediaItem.lastPlayedAt] is null (never played).
+ * - Tapping a row calls [viewModel.markPlayed] to clear the badge, then [onVideoClick].
+ * - Pull-to-refresh triggers [VideoListViewModel.refresh].
+ * - S/M/L size picker, sort by name or duration, ascending/descending.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,13 +68,8 @@ fun VideoListScreen(
     var sortMenuOpen    by remember { mutableStateOf(false) }
     var isRefreshing    by remember { mutableStateOf(false) }
 
-    // Auto-reset refresh indicator after a delay (proper implementation ties to ViewModel state).
     LaunchedEffect(isRefreshing) {
-        if (isRefreshing) {
-            onRefresh()
-            delay(2_000)
-            isRefreshing = false
-        }
+        if (isRefreshing) { onRefresh(); delay(2_000); isRefreshing = false }
     }
 
     val sorted = remember(videos, currentSort, ascending) {
@@ -91,23 +80,18 @@ fun VideoListScreen(
         videos.sortedWith(if (ascending) cmp else Comparator { a, b -> cmp.compare(b, a) })
     }
 
-    val listState = rememberLazyListState()
+    val listState  = rememberLazyListState()
     val isScrolling by remember { derivedStateOf { listState.isScrollInProgress } }
 
     Column(modifier = modifier.fillMaxSize()) {
 
-        // ── Toolbar ──────────────────────────────────────────────────────────
+        // Toolbar.
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Sort key.
             Box {
-                TextButton(onClick = { sortMenuOpen = true }) {
-                    Text("Sort: ${currentSort.label}")
-                }
+                TextButton(onClick = { sortMenuOpen = true }) { Text("Sort: ${currentSort.label}") }
                 DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
                     VideoSort.values().forEach { option ->
                         DropdownMenuItem(
@@ -117,13 +101,7 @@ fun VideoListScreen(
                     }
                 }
             }
-
-            // Direction.
-            TextButton(onClick = { ascending = !ascending }) {
-                Text(if (ascending) "↑" else "↓")
-            }
-
-            // Size.
+            TextButton(onClick = { ascending = !ascending }) { Text(if (ascending) "↑" else "↓") }
             ItemSize.values().forEach { size ->
                 TextButton(onClick = { currentItemSize = size }) {
                     Text(
@@ -135,14 +113,10 @@ fun VideoListScreen(
             }
         }
 
-        // ── Content ───────────────────────────────────────────────────────────
         if (sorted.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Indexing videos…",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("Indexing videos…", style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             return@Column
         }
@@ -162,7 +136,10 @@ fun VideoListScreen(
                         item            = item,
                         itemSize        = currentItemSize,
                         isScrollingFast = isScrolling,
-                        onClick         = { onVideoClick(item) }
+                        onClick         = {
+                            viewModel.markPlayed(item.uri)   // clears ⭐ badge
+                            onVideoClick(item)
+                        }
                     )
                     HorizontalDivider()
                 }
@@ -171,110 +148,77 @@ fun VideoListScreen(
     }
 }
 
-// ── Video row ─────────────────────────────────────────────────────────────────
-
 @Composable
-private fun VideoRow(
-    item: MediaItem,
-    itemSize: ItemSize,
-    isScrollingFast: Boolean,
-    onClick: () -> Unit
-) {
+private fun VideoRow(item: MediaItem, itemSize: ItemSize, isScrollingFast: Boolean, onClick: () -> Unit) {
     val (thumbW, thumbH): Pair<Dp, Dp> = when (itemSize) {
         ItemSize.SMALL  -> 52.dp to 32.dp
         ItemSize.MEDIUM -> 72.dp to 44.dp
         ItemSize.LARGE  -> 96.dp to 60.dp
     }
-
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         VelocityGuardImage(
             uri             = item.uri,
             isScrollingFast = isScrollingFast,
-            modifier        = Modifier
-                .size(width = thumbW, height = thumbH)
-                .clip(RoundedCornerShape(6.dp))
+            modifier        = Modifier.size(width = thumbW, height = thumbH).clip(RoundedCornerShape(6.dp))
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text     = item.displayName.ifEmpty { item.uri.substringAfterLast('/') },
-                style    = when (itemSize) {
-                    ItemSize.SMALL  -> MaterialTheme.typography.bodyMedium
-                    ItemSize.MEDIUM -> MaterialTheme.typography.bodyLarge
-                    ItemSize.LARGE  -> MaterialTheme.typography.titleSmall
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            // Metadata row.
-            val meta = buildString {
-                val fmt = formatLabel(item.mimeType)
-                if (fmt.isNotEmpty()) append(fmt)
-                val q = qualityLabel(item.height)
-                if (q.isNotEmpty()) { if (isNotEmpty()) append(" · "); append(q) }
-                if (item.durationMs > 0) {
-                    if (isNotEmpty()) append(" · ")
-                    append(formatTime(item.durationMs))
-                }
-                if (item.fileSize > 0) {
-                    if (isNotEmpty()) append(" · ")
-                    append(formatSize(item.fileSize))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text     = item.displayName.ifEmpty { item.uri.substringAfterLast('/') },
+                    style    = when (itemSize) {
+                        ItemSize.SMALL  -> MaterialTheme.typography.bodyMedium
+                        ItemSize.MEDIUM -> MaterialTheme.typography.bodyLarge
+                        ItemSize.LARGE  -> MaterialTheme.typography.titleSmall
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                // ⭐ new-file badge: shown until the file is played once.
+                if (item.lastPlayedAt == null) {
+                    Text("⭐", fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp))
                 }
             }
+            val meta = buildString {
+                val fmt = formatLabel(item.mimeType); if (fmt.isNotEmpty()) append(fmt)
+                val q = qualityLabel(item.height); if (q.isNotEmpty()) { if (isNotEmpty()) append(" · "); append(q) }
+                if (item.durationMs > 0) { if (isNotEmpty()) append(" · "); append(formatTime(item.durationMs)) }
+                if (item.fileSize > 0) { if (isNotEmpty()) append(" · "); append(formatSize(item.fileSize)) }
+            }
             if (meta.isNotEmpty()) {
-                Text(
-                    text  = meta,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Text(text = meta, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-private fun qualityLabel(height: Int): String = when {
-    height >= 2160 -> "4K"
-    height >= 1080 -> "1080p"
-    height >= 720  -> "720p"
-    height >= 480  -> "480p"
-    height > 0     -> "SD"
-    else           -> ""
+private fun qualityLabel(height: Int) = when {
+    height >= 2160 -> "4K"; height >= 1080 -> "1080p"; height >= 720 -> "720p"
+    height >= 480  -> "480p"; height > 0 -> "SD"; else -> ""
 }
 
 private fun formatLabel(mimeType: String): String {
     val raw = mimeType.substringAfterLast('/', "").uppercase()
     return when (raw) {
-        "MP4"                 -> "MP4"
-        "X-MATROSKA"          -> "MKV"
-        "QUICKTIME"           -> "MOV"
-        "X-MSVIDEO"           -> "AVI"
-        "WEBM"                -> "WEBM"
-        "3GPP", "3GPP2"       -> raw.take(4)
-        else                  -> raw.take(8)
+        "X-MATROSKA" -> "MKV"; "QUICKTIME" -> "MOV"; "X-MSVIDEO" -> "AVI"
+        else -> raw.take(8)
     }
 }
 
 private fun formatTime(ms: Long): String {
-    val totalSec = (ms / 1000).coerceAtLeast(0)
-    val h = totalSec / 3600
-    val m = (totalSec % 3600) / 60
-    val s = totalSec % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+    val s = (ms / 1000).coerceAtLeast(0); val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
 }
 
-private fun formatSize(bytes: Long): String = when {
+private fun formatSize(bytes: Long) = when {
     bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
     bytes >= 1_048_576L     -> "${bytes / 1_048_576} MB"
-    bytes >= 1_024L         -> "${bytes / 1_024} KB"
-    else                    -> "$bytes B"
+    else                    -> "${bytes / 1_024} KB"
 }
