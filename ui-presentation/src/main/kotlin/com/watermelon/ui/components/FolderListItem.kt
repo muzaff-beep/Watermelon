@@ -25,17 +25,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.watermelon.common.model.FolderNode
 import com.watermelon.ui.screens.ItemSize
 import com.watermelon.ui.theme.WatermelonTheme
 
 /**
- * Folder item for both list and grid layouts. Shows an initial-letter icon (no thumbnail —
- * thumbnails live on video items), folder name, file count, and total playtime.
- *
- * @param itemSize controls icon and text density.
- * @param isGrid   when true renders as a Column (icon + text stacked) for grid cells;
- *                 when false renders as a Row for list mode.
+ * Folder item for list and grid layouts. No thumbnail — thumbnails live on video items.
+ * Shows an initial-letter icon, folder name (with ⭐ if it contains unplayed files),
+ * file count, and total playtime.
  */
 @Composable
 fun FolderListItem(
@@ -44,45 +42,45 @@ fun FolderListItem(
     modifier: Modifier = Modifier,
     itemSize: ItemSize = ItemSize.MEDIUM,
     isGrid: Boolean = false,
-    @Suppress("UNUSED_PARAMETER") isScrollingFast: Boolean = false   // reserved for future use
+    @Suppress("UNUSED_PARAMETER") isScrollingFast: Boolean = false
 ) {
     val iconDp: Dp = when (itemSize) {
         ItemSize.SMALL  -> if (isGrid) 40.dp else 32.dp
         ItemSize.MEDIUM -> if (isGrid) 52.dp else 40.dp
         ItemSize.LARGE  -> if (isGrid) 68.dp else 56.dp
     }
-    val initial = folder.displayName.firstOrNull()?.uppercase() ?: "?"
-    val countText = "${folder.itemCount} files"
-    val durationText = if (folder.totalDurationMs > 0L) formatDuration(folder.totalDurationMs) else "--:--"
-    val metaText = "$countText · $durationText"
-
-    val shape = RoundedCornerShape(12.dp)
-    val baseModifier = modifier
-        .clip(shape)
-        .clickable { onClick(folder) }
+    val initial    = folder.displayName.firstOrNull()?.uppercase() ?: "?"
+    val metaText   = "${folder.itemCount} files · ${if (folder.totalDurationMs > 0L) formatDuration(folder.totalDurationMs) else "--:--"}"
+    val shape      = RoundedCornerShape(12.dp)
+    val baseModifier = modifier.clip(shape).clickable { onClick(folder) }
 
     if (isGrid) {
-        // Grid cell: icon centred above name.
         Column(
-            modifier = baseModifier
-                .fillMaxWidth()
-                .padding(8.dp),
+            modifier = baseModifier.fillMaxWidth().padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             FolderIcon(initial = initial, size = iconDp)
-            Text(
-                text      = folder.displayName,
-                style     = when (itemSize) {
-                    ItemSize.SMALL  -> MaterialTheme.typography.bodySmall
-                    ItemSize.MEDIUM -> MaterialTheme.typography.bodyMedium
-                    ItemSize.LARGE  -> MaterialTheme.typography.bodyLarge
-                },
-                maxLines  = 2,
-                overflow  = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text      = folder.displayName,
+                    style     = when (itemSize) {
+                        ItemSize.SMALL  -> MaterialTheme.typography.bodySmall
+                        ItemSize.MEDIUM -> MaterialTheme.typography.bodyMedium
+                        ItemSize.LARGE  -> MaterialTheme.typography.bodyLarge
+                    },
+                    maxLines  = 2,
+                    overflow  = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Medium
+                )
+                if (folder.hasNewFiles) {
+                    Text("⭐", fontSize = 12.sp, modifier = Modifier.padding(start = 2.dp))
+                }
+            }
             Text(
                 text  = metaText,
                 style = MaterialTheme.typography.labelSmall,
@@ -91,7 +89,6 @@ fun FolderListItem(
             )
         }
     } else {
-        // List row: icon → name + meta.
         Row(
             modifier = baseModifier
                 .fillMaxWidth()
@@ -101,17 +98,23 @@ fun FolderListItem(
             FolderIcon(initial = initial, size = iconDp)
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text  = folder.displayName,
-                    style = when (itemSize) {
-                        ItemSize.SMALL  -> MaterialTheme.typography.bodyMedium
-                        ItemSize.MEDIUM -> MaterialTheme.typography.bodyLarge
-                        ItemSize.LARGE  -> MaterialTheme.typography.titleSmall
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text  = folder.displayName,
+                        style = when (itemSize) {
+                            ItemSize.SMALL  -> MaterialTheme.typography.bodyMedium
+                            ItemSize.MEDIUM -> MaterialTheme.typography.bodyLarge
+                            ItemSize.LARGE  -> MaterialTheme.typography.titleSmall
+                        },
+                        maxLines  = 1,
+                        overflow  = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.Medium,
+                        modifier  = Modifier.weight(1f, fill = false)
+                    )
+                    if (folder.hasNewFiles) {
+                        Text("⭐", fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
                 Text(
                     text  = metaText,
                     style = MaterialTheme.typography.bodySmall,
@@ -142,36 +145,20 @@ private fun FolderIcon(initial: String, size: Dp) {
 
 private fun formatDuration(ms: Long): String {
     val totalSec = (ms / 1000).coerceAtLeast(0)
-    val h = totalSec / 3600
-    val m = (totalSec % 3600) / 60
-    val s = totalSec % 60
+    val h = totalSec / 3600; val m = (totalSec % 3600) / 60; val s = totalSec % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-// ── Previews ─────────────────────────────────────────────────────────────────
-
-@Preview(name = "List MEDIUM LTR")
+@Preview(name = "List MEDIUM — has new files")
 @Composable
-private fun PreviewListMedium() {
+private fun PreviewList() {
     WatermelonTheme(forceRtl = false) {
         FolderListItem(
-            folder   = FolderNode("/DCIM/Camera", "Camera", 128, emptyList(), totalDurationMs = 5_400_000L),
+            folder   = FolderNode("/Camera", "Camera", 128, emptyList(),
+                                  totalDurationMs = 5_400_000L, hasNewFiles = true),
             onClick  = {},
             itemSize = ItemSize.MEDIUM,
             isGrid   = false
-        )
-    }
-}
-
-@Preview(name = "Grid LARGE")
-@Composable
-private fun PreviewGridLarge() {
-    WatermelonTheme(forceRtl = false) {
-        FolderListItem(
-            folder   = FolderNode("/Movies", "Movies", 42, emptyList(), totalDurationMs = 12_600_000L),
-            onClick  = {},
-            itemSize = ItemSize.LARGE,
-            isGrid   = true
         )
     }
 }
