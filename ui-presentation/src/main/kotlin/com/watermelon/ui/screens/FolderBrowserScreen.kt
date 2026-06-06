@@ -28,23 +28,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.watermelon.common.model.FolderNode
 import com.watermelon.ui.components.FolderListItem
 import com.watermelon.ui.viewmodel.FolderViewModel
 
-/** Layout mode for the folder browser (Manifest 5.3). */
+/** Thumbnail density / cell size for folder and video lists. */
+enum class ItemSize(val label: String, val gridCellDp: Dp) {
+    SMALL("S", 120.dp), MEDIUM("M", 160.dp), LARGE("L", 210.dp)
+}
+
+/** Layout mode. */
 enum class FolderLayout { LIST, GRID }
 
-/** Sort options (Manifest 5.3). */
+/** Sort key. */
 enum class FolderSort { NAME, DATE, SIZE, RESOLUTION }
 
 /**
- * Folder browser. Folders are grouped into labeled sections by storage volume
- * ("Internal storage" / "SD card"), with a working grid/list toggle and sort selector.
- * Scroll velocity is tracked and forwarded to FolderListItem so VelocityGuardImage can
- * switch between cheap thumbnails (fling) and quality thumbnails (settled).
+ * Folder browser: volume-section headers, sort/size/direction toolbar, velocity-aware
+ * thumbnails, list or grid layout.
  */
 @Composable
 fun FolderBrowserScreen(
@@ -56,9 +60,11 @@ fun FolderBrowserScreen(
 ) {
     val folders by viewModel.folderTree.collectAsStateWithLifecycle()
 
-    var currentLayout by remember { mutableStateOf(layout) }
-    var currentSort by remember { mutableStateOf(sort) }
-    var sortMenuOpen by remember { mutableStateOf(false) }
+    var currentLayout   by remember { mutableStateOf(layout) }
+    var currentSort     by remember { mutableStateOf(sort) }
+    var currentItemSize by remember { mutableStateOf(ItemSize.MEDIUM) }
+    var ascending       by remember { mutableStateOf(true) }
+    var sortMenuOpen    by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
@@ -66,39 +72,37 @@ fun FolderBrowserScreen(
         derivedStateOf { listState.isScrollInProgress || gridState.isScrollInProgress }
     }
 
-    val byVolume = remember(folders, currentSort) {
+    val byVolume = remember(folders, currentSort, ascending) {
+        val cmp = sortComparator(currentSort).let { if (ascending) it else Comparator { a, b -> it.compare(b, a) } }
         folders.groupBy { it.volume }
             .toSortedMap()
-            .mapValues { (_, v) -> v.sortedWith(sortComparator(currentSort)) }
+            .mapValues { (_, v) -> v.sortedWith(cmp) }
     }
+
+    val isGrid = currentLayout == FolderLayout.GRID
 
     Column(modifier = modifier.fillMaxSize()) {
 
-        // --- Toolbar ----------------------------------------------------------------
+        // ── Toolbar ──────────────────────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Layout toggle.
             TextButton(onClick = {
-                currentLayout = if (currentLayout == FolderLayout.LIST) {
-                    FolderLayout.GRID
-                } else {
-                    FolderLayout.LIST
-                }
+                currentLayout = if (currentLayout == FolderLayout.LIST) FolderLayout.GRID else FolderLayout.LIST
             }) {
-                Text(if (currentLayout == FolderLayout.LIST) "Grid view" else "List view")
+                Text(if (isGrid) "List" else "Grid")
             }
 
+            // Sort key.
             Box {
                 TextButton(onClick = { sortMenuOpen = true }) {
                     Text("Sort: ${currentSort.label()}")
                 }
-                DropdownMenu(
-                    expanded = sortMenuOpen,
-                    onDismissRequest = { sortMenuOpen = false }
-                ) {
+                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
                     FolderSort.values().forEach { option ->
                         DropdownMenuItem(
                             text = { Text(option.label()) },
@@ -107,9 +111,25 @@ fun FolderBrowserScreen(
                     }
                 }
             }
+
+            // Ascending / descending.
+            TextButton(onClick = { ascending = !ascending }) {
+                Text(if (ascending) "↑" else "↓")
+            }
+
+            // Item size.
+            ItemSize.values().forEach { size ->
+                TextButton(onClick = { currentItemSize = size }) {
+                    Text(
+                        text  = size.label,
+                        color = if (size == currentItemSize) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
         }
 
-        // --- Content ----------------------------------------------------------------
+        // ── Content ───────────────────────────────────────────────────────────
         if (folders.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("No media folders found", style = MaterialTheme.typography.bodyLarge)
@@ -127,8 +147,10 @@ fun FolderBrowserScreen(
                     item(key = "hdr-$volume") { VolumeHeader(volume) }
                     items(vfolders, key = { it.path }) { folder ->
                         FolderListItem(
-                            folder = folder,
-                            onClick = onFolderClick,
+                            folder         = folder,
+                            onClick        = onFolderClick,
+                            itemSize       = currentItemSize,
+                            isGrid         = false,
                             isScrollingFast = isScrolling
                         )
                     }
@@ -136,11 +158,11 @@ fun FolderBrowserScreen(
             }
 
             FolderLayout.GRID -> LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Adaptive(minSize = 160.dp),
+                state   = gridState,
+                columns = GridCells.Adaptive(minSize = currentItemSize.gridCellDp),
                 modifier = Modifier.fillMaxSize().padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement   = Arrangement.spacedBy(8.dp)
             ) {
                 byVolume.forEach { (volume, vfolders) ->
                     item(key = "hdr-$volume", span = { GridItemSpan(maxLineSpan) }) {
@@ -148,8 +170,10 @@ fun FolderBrowserScreen(
                     }
                     gridItems(vfolders, key = { it.path }) { folder ->
                         FolderListItem(
-                            folder = folder,
-                            onClick = onFolderClick,
+                            folder         = folder,
+                            onClick        = onFolderClick,
+                            itemSize       = currentItemSize,
+                            isGrid         = true,
                             isScrollingFast = isScrolling
                         )
                     }
@@ -162,25 +186,23 @@ fun FolderBrowserScreen(
 @Composable
 private fun VolumeHeader(volume: String) {
     Text(
-        text = volume,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+        text     = volume,
+        style    = MaterialTheme.typography.titleSmall,
+        color    = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
     )
 }
 
 private fun FolderSort.label(): String = when (this) {
-    FolderSort.NAME -> "Name"
-    FolderSort.DATE -> "Date"
-    FolderSort.SIZE -> "Count"
+    FolderSort.NAME       -> "Name"
+    FolderSort.DATE       -> "Date"
+    FolderSort.SIZE       -> "Count"
     FolderSort.RESOLUTION -> "Resolution"
 }
 
 private fun sortComparator(sort: FolderSort): Comparator<FolderNode> = when (sort) {
-    FolderSort.NAME -> compareBy { it.displayName.lowercase() }
-    FolderSort.SIZE -> compareByDescending { it.itemCount }
-    FolderSort.DATE -> compareBy { it.displayName.lowercase() }
+    FolderSort.NAME       -> compareBy { it.displayName.lowercase() }
+    FolderSort.SIZE       -> compareByDescending { it.itemCount }
+    FolderSort.DATE       -> compareBy { it.displayName.lowercase() }
     FolderSort.RESOLUTION -> compareBy { it.displayName.lowercase() }
 }
