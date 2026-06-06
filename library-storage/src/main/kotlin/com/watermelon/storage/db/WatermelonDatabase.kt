@@ -8,6 +8,7 @@ import com.watermelon.storage.db.migrations.MigrationV2ToV3
 import com.watermelon.storage.db.migrations.MigrationV3ToV4
 import com.watermelon.storage.db.migrations.MigrationV4ToV5
 import com.watermelon.storage.db.migrations.MigrationV5ToV6
+import com.watermelon.storage.db.migrations.MigrationV6ToV7
 
 /**
  * Hand-written [SQLiteOpenHelper] (no Room). Schema is frozen — Handover §2.2 / Manifest §10.1.
@@ -22,10 +23,7 @@ class WatermelonDatabase(context: Context) : SQLiteOpenHelper(
 ) {
 
     override fun onCreate(db: SQLiteDatabase) {
-        // Fresh installs get the full current schema directly. Each statement is idempotent
-        // so re-running the migration ladder afterwards (if ever) is harmless.
         createBaselineV1(db)
-        // Apply every forward step so a fresh DB ends at the current frozen schema.
         runMigrations(db, fromVersion = 1, toVersion = DATABASE_VERSION)
     }
 
@@ -46,11 +44,11 @@ class WatermelonDatabase(context: Context) : SQLiteOpenHelper(
                 3 -> MigrationV3ToV4.migrate(db)
                 4 -> MigrationV4ToV5.migrate(db)
                 5 -> MigrationV5ToV6.migrate(db)
+                6 -> MigrationV6ToV7.migrate(db)
             }
         }
     }
 
-    /** Version-1 baseline: the three core tables that pre-date the migration ladder. */
     private fun createBaselineV1(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -91,6 +89,6 @@ class WatermelonDatabase(context: Context) : SQLiteOpenHelper(
 
     companion object {
         const val DATABASE_NAME = "watermelon.db"
-        const val DATABASE_VERSION = 6
+        const val DATABASE_VERSION = 7
     }
 }
