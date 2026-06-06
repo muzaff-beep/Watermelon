@@ -14,28 +14,65 @@ import java.util.concurrent.Executors
 
 /**
  * Phase 2 — background codec/duration extraction via [MediaMetadataRetriever]. Updates SQLite
- * row-by-row on a low-priority background thread (Manifest §5.2 / Teams §4 Implementation
- * Notes). Heavy work stays off the main thread to preserve ANR safety.
+ * row-by-row on a low-priority background thread (Manifest §5.2 / Teams §4).
+ *
+ * Two-query upsert strategy (preserves [firstSeenAt] and [lastPlayedAt]):
+ *  1. INSERT OR IGNORE — writes all fields including [firstSeenAt] = now. No-op if the row
+ *     already exists, so [firstSeenAt] is set exactly once (when the URI is first indexed).
+ *  2. UPDATE — refreshes metadata fields only. Never touches [firstSeenAt] or [lastPlayedAt],
+ *     so the ⭐ new-file badge is not reset by re-indexing.
  */
 class Phase2Extractor(
     private val context: Context,
     private val database: WatermelonDatabase,
     private val dispatcher: CoroutineDispatcher =
         Executors.newSingleThreadExecutor { r ->
-            Thread(r, "watermelon-phase2").apply {
-                priority = Thread.MIN_PRIORITY
-            }
+            Thread(r, "watermelon-phase2").apply { priority = Thread.MIN_PRIORITY }
         }.asCoroutineDispatcher()
 ) {
     private val contentResolver: ContentResolver = context.contentResolver
 
-    /** Extract metadata for each [uris] entry and upsert into MediaItems. */
     suspend fun extract(uris: List<String>) = withContext(dispatcher) {
         val db = database.writableDatabase
+        val now = System.currentTimeMillis()
         for (uriString in uris) {
             val values = extractOne(uriString) ?: continue
-            db.insertWithOnConflict(
-                "MediaItems", null, values, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE
+
+            // 1. INSERT OR IGNORE: sets firstSeenAt only on new rows.
+            db.execSQL(
+                """INSERT OR IGNORE INTO MediaItems
+                   (mediaId, fileSize, displayName, parentFolder,
+                    durationMs, width, height, mimeType, firstSeenAt)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                arrayOf(
+                    uriString,
+                    values.getAsLong("fileSize"),
+                    values.getAsString("displayName"),
+                    values.getAsString("parentFolder"),
+                    values.getAsLong("durationMs"),
+                    values.getAsInteger("width"),
+                    values.getAsInteger("height"),
+                    values.getAsString("mimeType"),
+                    now
+                )
+            )
+
+            // 2. UPDATE: refresh metadata without touching firstSeenAt or lastPlayedAt.
+            db.execSQL(
+                """UPDATE MediaItems SET
+                   fileSize=?, displayName=?, parentFolder=?,
+                   durationMs=?, width=?, height=?, mimeType=?
+                   WHERE mediaId=?""",
+                arrayOf(
+                    values.getAsLong("fileSize"),
+                    values.getAsString("displayName"),
+                    values.getAsString("parentFolder"),
+                    values.getAsLong("durationMs"),
+                    values.getAsInteger("width"),
+                    values.getAsInteger("height"),
+                    values.getAsString("mimeType"),
+                    uriString
+                )
             )
         }
     }
@@ -54,7 +91,6 @@ class Phase2Extractor(
             val mime = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE) ?: ""
             val (displayName, fileSize, parentFolder) = queryMediaStoreBasics(uri)
             ContentValues().apply {
-                put("mediaId", uriString)
                 put("fileSize", fileSize)
                 put("displayName", displayName)
                 put("parentFolder", parentFolder)
@@ -76,10 +112,7 @@ class Phase2Extractor(
         )
         contentResolver.query(uri, projection, null, null, null)?.use { c ->
             if (c.moveToFirst()) {
-                val name = c.getString(0) ?: ""
-                val size = c.getLong(1)
-                val folder = c.getString(2) ?: ""
-                return Triple(name, size, folder)
+                return Triple(c.getString(0) ?: "", c.getLong(1), c.getString(2) ?: "")
             }
         }
         return Triple("", 0L, "")
