@@ -34,8 +34,15 @@ class FolderViewModel(
         val durationByFolder = allMedia
             .groupBy { it.parentFolder }
             .mapValues { (_, items) -> items.sumOf { it.durationMs } }
+        val newFolderSet = allMedia
+            .filter { it.lastPlayedAt == null }
+            .map { it.parentFolder }
+            .toSet()
         folders.map { folder ->
-            folder.copy(totalDurationMs = durationByFolder[folder.path] ?: 0L)
+            folder.copy(
+                totalDurationMs = durationByFolder[folder.path] ?: 0L,
+                hasNewFiles     = folder.path in newFolderSet
+            )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
