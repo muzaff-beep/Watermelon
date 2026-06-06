@@ -1,5 +1,7 @@
 package com.watermelon.ui.screens
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -35,6 +37,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +73,11 @@ enum class VideoRatio(val label: String, val ratio: Float?) {
 }
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+
+/** Screen orientation lock modes. */
+enum class ScreenOrientation(val label: String) {
+    AUTO("↻ Auto"), PORTRAIT("↑ Port"), LANDSCAPE("↔ Land")
+}
 
 // ─── Player screen ────────────────────────────────────────────────────────────
 
@@ -126,6 +134,8 @@ fun PlayerScreen(
     var holdIsLeft         by remember { mutableStateOf(false) }
     var currentVolume      by remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) }
     var showVolumeIndicator by remember { mutableStateOf(false) }
+    val activity = LocalContext.current as? Activity
+    var currentOrientation by rememberSaveable { mutableStateOf(ScreenOrientation.AUTO) }
 
     // Auto-hide controls while playing (paused during seek or hold).
     LaunchedEffect(controlsVisible, isPlaying, isSeekingFast, isHolding) {
@@ -138,6 +148,15 @@ fun PlayerScreen(
     // Auto-hide volume indicator.
     LaunchedEffect(showVolumeIndicator) {
         if (showVolumeIndicator) { delay(1_500); showVolumeIndicator = false }
+    }
+
+    // Apply screen orientation lock.
+    LaunchedEffect(currentOrientation) {
+        activity?.requestedOrientation = when (currentOrientation) {
+            ScreenOrientation.AUTO      -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            ScreenOrientation.PORTRAIT  -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            ScreenOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
     }
 
     // Hold gesture: left = continuous rewind; right = 2× forward.
@@ -330,6 +349,8 @@ fun PlayerScreen(
                             }
                         },
                         onRatioChange  = { currentRatio = it },
+                        currentOrientation = currentOrientation,
+                        onOrientationChange = { currentOrientation = it },
                         onRepeat       = { /* stub */ },
                         onShuffle      = { /* stub */ },
                         onScreenshot   = { /* stub */ },
@@ -414,6 +435,7 @@ fun PlayerScreen(
 }
 
 // ─── Control panel ────────────────────────────────────────────────────────────
+
 @Composable
 private fun ControlPanel(
     modifier: Modifier,
@@ -423,6 +445,8 @@ private fun ControlPanel(
     onSpeedChange: (Float) -> Unit,
     onMuteToggle: () -> Unit,
     onRatioChange: (VideoRatio) -> Unit,
+    currentOrientation: ScreenOrientation,
+    onOrientationChange: (ScreenOrientation) -> Unit,
     onRepeat: () -> Unit,
     onShuffle: () -> Unit,
     onScreenshot: () -> Unit,
@@ -472,6 +496,27 @@ private fun ControlPanel(
                 ) {
                     Text(
                         text       = ratio.label,
+                        color      = if (active) MaterialTheme.colorScheme.primary else Color.White,
+                        fontSize   = 12.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+
+        // Orientation lock.
+        Text("Rotate", color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            ScreenOrientation.values().forEach { orientation ->
+                val active = orientation == currentOrientation
+                TextButton(
+                    onClick  = { onOrientationChange(orientation) },
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text(
+                        text       = orientation.label,
                         color      = if (active) MaterialTheme.colorScheme.primary else Color.White,
                         fontSize   = 12.sp,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
