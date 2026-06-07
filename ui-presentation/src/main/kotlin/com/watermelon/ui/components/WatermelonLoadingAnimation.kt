@@ -10,10 +10,7 @@ import com.airbnb.lottie.compose.rememberLottieComposition
 import com.watermelon.ui.R
 
 /**
- * Loops the Watermelon branded Lottie animation. Used as a loading indicator while
- * Phase 2 metadata extraction runs.
- *
- * Setup required (one-time):
+ * Loops the Watermelon branded Lottie animation
  *  1. Rename the file to index_loading.json (no hyphens) and place in:
  *     ui-presentation/src/main/res/raw/index_loading.json
  *  2. Add to libs.versions.toml:
@@ -22,6 +19,7 @@ import com.watermelon.ui.R
  *  3. Add to ui-presentation/build.gradle.kts:
  *     implementation(libs.lottie.compose)
  */
+
 @Composable
 fun WatermelonLoadingAnimation(modifier: Modifier = Modifier) {
     val composition by rememberLottieComposition(
