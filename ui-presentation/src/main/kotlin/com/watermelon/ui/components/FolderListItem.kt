@@ -22,18 +22,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.watermelon.common.model.FolderNode
 import com.watermelon.ui.screens.ItemSize
-import com.watermelon.ui.theme.WatermelonTheme
 
 /**
- * Folder item for list and grid layouts. No thumbnail — thumbnails live on video items.
- * Shows an initial-letter icon, folder name (with ⭐ if it contains unplayed files),
- * file count, and total playtime.
+ * Folder item for list and grid layouts. No thumbnail (thumbnails live on video items).
+ * Shows an initial-letter icon, folder name (⭐ if unplayed files exist), file count,
+ * and total playtime. Size differences are deliberately dramatic to be tangible.
  */
 @Composable
 fun FolderListItem(
@@ -44,19 +42,35 @@ fun FolderListItem(
     isGrid: Boolean = false,
     @Suppress("UNUSED_PARAMETER") isScrollingFast: Boolean = false
 ) {
+    // Size-dependent values — gaps are large so the difference is obvious.
     val iconDp: Dp = when (itemSize) {
-        ItemSize.SMALL  -> if (isGrid) 40.dp else 32.dp
-        ItemSize.MEDIUM -> if (isGrid) 52.dp else 40.dp
-        ItemSize.LARGE  -> if (isGrid) 68.dp else 56.dp
+        ItemSize.SMALL  -> if (isGrid) 36.dp else 28.dp
+        ItemSize.MEDIUM -> if (isGrid) 56.dp else 44.dp
+        ItemSize.LARGE  -> if (isGrid) 80.dp else 64.dp
     }
-    val initial    = folder.displayName.firstOrNull()?.uppercase() ?: "?"
-    val metaText   = "${folder.itemCount} files · ${if (folder.totalDurationMs > 0L) formatDuration(folder.totalDurationMs) else "--:--"}"
-    val shape      = RoundedCornerShape(12.dp)
-    val baseModifier = modifier.clip(shape).clickable { onClick(folder) }
+    val hPad: Dp = when (itemSize) {
+        ItemSize.SMALL  -> 8.dp
+        ItemSize.MEDIUM -> 14.dp
+        ItemSize.LARGE  -> 20.dp
+    }
+    val vPad: Dp = when (itemSize) {
+        ItemSize.SMALL  -> 6.dp
+        ItemSize.MEDIUM -> 12.dp
+        ItemSize.LARGE  -> 18.dp
+    }
+
+    val initial  = folder.displayName.firstOrNull()?.uppercase() ?: "?"
+    val metaText = "${folder.itemCount} files · ${
+        if (folder.totalDurationMs > 0L) formatDuration(folder.totalDurationMs) else "--:--"
+    }"
+
+    val clickMod = modifier
+        .clip(RoundedCornerShape(12.dp))
+        .clickable { onClick(folder) }
 
     if (isGrid) {
         Column(
-            modifier = baseModifier.fillMaxWidth().padding(8.dp),
+            modifier = clickMod.fillMaxWidth().padding(hPad, vPad),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -67,6 +81,7 @@ fun FolderListItem(
             ) {
                 Text(
                     text      = folder.displayName,
+                    color     = MaterialTheme.colorScheme.onSurface,
                     style     = when (itemSize) {
                         ItemSize.SMALL  -> MaterialTheme.typography.bodySmall
                         ItemSize.MEDIUM -> MaterialTheme.typography.bodyMedium
@@ -90,26 +105,25 @@ fun FolderListItem(
         }
     } else {
         Row(
-            modifier = baseModifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = clickMod.fillMaxWidth().padding(hPad, vPad),
             verticalAlignment = Alignment.CenterVertically
         ) {
             FolderIcon(initial = initial, size = iconDp)
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(hPad))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text  = folder.displayName,
-                        style = when (itemSize) {
+                        text       = folder.displayName,
+                        color      = MaterialTheme.colorScheme.onSurface,
+                        style      = when (itemSize) {
                             ItemSize.SMALL  -> MaterialTheme.typography.bodyMedium
                             ItemSize.MEDIUM -> MaterialTheme.typography.bodyLarge
-                            ItemSize.LARGE  -> MaterialTheme.typography.titleSmall
+                            ItemSize.LARGE  -> MaterialTheme.typography.titleMedium
                         },
-                        maxLines  = 1,
-                        overflow  = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.Medium,
-                        modifier  = Modifier.weight(1f, fill = false)
+                        maxLines   = 1,
+                        overflow   = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier   = Modifier.weight(1f, fill = false)
                     )
                     if (folder.hasNewFiles) {
                         Text("⭐", fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp))
@@ -144,21 +158,7 @@ private fun FolderIcon(initial: String, size: Dp) {
 }
 
 private fun formatDuration(ms: Long): String {
-    val totalSec = (ms / 1000).coerceAtLeast(0)
-    val h = totalSec / 3600; val m = (totalSec % 3600) / 60; val s = totalSec % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
-
-@Preview(name = "List MEDIUM — has new files")
-@Composable
-private fun PreviewList() {
-    WatermelonTheme(forceRtl = false) {
-        FolderListItem(
-            folder   = FolderNode("/Camera", "Camera", 128, emptyList(),
-                                  totalDurationMs = 5_400_000L, hasNewFiles = true),
-            onClick  = {},
-            itemSize = ItemSize.MEDIUM,
-            isGrid   = false
-        )
-    }
+    val s = (ms / 1000).coerceAtLeast(0)
+    val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
 }
