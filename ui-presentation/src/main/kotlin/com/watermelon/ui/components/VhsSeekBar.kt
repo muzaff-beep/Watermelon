@@ -1,23 +1,40 @@
 package com.watermelon.ui.components
 
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.Slider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 
 /**
- * Seek bar that triggers the VHS effect during fast scrubbing (Manifest §4.3). While the user
- * holds and drags the thumb, [onSeekingFastChange] fires true and [onSeekSpeedChange] reports
- * the 2×/4×/8× tracking multiplier based on drag velocity. The actual ExoPlayer seek is
- * driven through [onSeek]; the VHS overlay is purely decorative.
+ * Single custom-drawn seek bar — one track, one thumb, one gesture system.
+ *
+ * Replaces the previous Material3 Slider implementation, which had two problems:
+ *  1. The Slider's own drag handling (onValueChange) fought with a second
+ *     detectHorizontalDragGestures attached via pointerInput — two gesture systems
+ *     competing for the same touch caused the stuttering / unsmooth controls.
+ *  2. The Slider always draws its own track, which read as a second bar stacked
+ *     against the controls-overlay layout edge (the "double seekbar").
+ *
+ * This version draws the track and thumb itself with Canvas, so there is exactly one
+ * visible bar and exactly one place that consumes drag. VHS velocity tracking
+ * (2×/4×/8×) is derived from the same single drag stream.
+ *
+ * @param onSeek            committed seek target in ms.
+ * @param onSeekingFastChange true while the user is actively dragging.
+ * @param onSeekSpeedChange 2 / 4 / 8 during drag, 0 when released.
  */
 @Composable
 fun VhsSeekBar(
@@ -28,41 +45,87 @@ fun VhsSeekBar(
     onSeekSpeedChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // While dragging we show the finger's fraction; otherwise we follow playback position.
+    var dragFraction by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
-    val fraction = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
 
-    Slider(
-        value = fraction.coerceIn(0f, 1f),
-        onValueChange = { v ->
-            if (!dragging) {
-                dragging = true
-                onSeekingFastChange(true)
-            }
-            onSeek((v * durationMs).toLong())
-        },
-        onValueChangeFinished = {
-            dragging = false
-            onSeekingFastChange(false)
-            onSeekSpeedChange(0)
-        },
+    val playbackFraction =
+        if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val shownFraction = if (dragging) dragFraction else playbackFraction
+
+    val activeColor   = MaterialTheme.colorScheme.primary
+    val inactiveColor = Color.White.copy(alpha = 0.3f)
+    val thumbColor    = MaterialTheme.colorScheme.primary
+
+    androidx.compose.foundation.Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(40.dp)
+            // ONE gesture system. Tap to scrub-to-point; drag to seek + report velocity.
+            .pointerInput(durationMs) {
+                detectTapGestures { offset ->
+                    val frac = (offset.x / size.width).coerceIn(0f, 1f)
+                    onSeek((frac * durationMs).toLong())
+                }
+            }
             .pointerInput(durationMs) {
                 detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        dragging = true
+                        dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        onSeekingFastChange(true)
+                    },
                     onDragEnd = {
+                        dragging = false
+                        onSeek((dragFraction * durationMs).toLong())
+                        onSeekingFastChange(false)
+                        onSeekSpeedChange(0)
+                    },
+                    onDragCancel = {
+                        dragging = false
                         onSeekingFastChange(false)
                         onSeekSpeedChange(0)
                     }
-                ) { _, dragAmount ->
-                    // Map drag velocity to the analog tape-tracking multiplier.
-                    val speed = when {
-                        kotlin.math.abs(dragAmount) > 40f -> 8
-                        kotlin.math.abs(dragAmount) > 20f -> 4
-                        else -> 2
-                    }
-                    onSeekSpeedChange(speed)
+                ) { change, dragAmount ->
+                    // Advance the thumb by the drag delta, as a fraction of bar width.
+                    dragFraction = (dragFraction + dragAmount / size.width).coerceIn(0f, 1f)
+                    onSeek((dragFraction * durationMs).toLong())
+                    // Map drag speed to the analog tape-tracking multiplier.
+                    onSeekSpeedChange(
+                        when {
+                            abs(dragAmount) > 40f -> 8
+                            abs(dragAmount) > 20f -> 4
+                            else -> 2
+                        }
+                    )
+                    change.consume()
                 }
             }
-    )
+    ) {
+        val barY      = size.height / 2f
+        val trackH    = 4.dp.toPx()
+        val thumbR    = 8.dp.toPx()
+        val activeEnd = size.width * shownFraction
+
+        // Inactive track (full width).
+        drawLine(
+            color = inactiveColor,
+            start = Offset(0f, barY),
+            end   = Offset(size.width, barY),
+            strokeWidth = trackH
+        )
+        // Active track (up to the thumb).
+        drawLine(
+            color = activeColor,
+            start = Offset(0f, barY),
+            end   = Offset(activeEnd, barY),
+            strokeWidth = trackH
+        )
+        // Thumb.
+        drawCircle(
+            color  = thumbColor,
+            radius = thumbR,
+            center = Offset(activeEnd.coerceIn(thumbR, size.width - thumbR), barY)
+        )
+    }
 }
