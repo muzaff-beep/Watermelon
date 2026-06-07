@@ -1,5 +1,6 @@
 package com.watermelon.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +27,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +44,20 @@ enum class ItemSize(val label: String) { SMALL("S"), MEDIUM("M"), LARGE("L") }
 enum class FolderLayout { LIST, GRID }
 enum class FolderSort   { NAME, DATE, SIZE, RESOLUTION }
 
+// Savers for enums so rememberSaveable can persist them across recomposition/rotation.
+private val LayoutSaver = Saver<FolderLayout, String>(
+    save    = { it.name },
+    restore = { FolderLayout.valueOf(it) }
+)
+private val SortSaver = Saver<FolderSort, String>(
+    save    = { it.name },
+    restore = { FolderSort.valueOf(it) }
+)
+private val SizeSaver = Saver<ItemSize, String>(
+    save    = { it.name },
+    restore = { ItemSize.valueOf(it) }
+)
+
 @Composable
 fun FolderBrowserScreen(
     viewModel: FolderViewModel,
@@ -50,10 +68,11 @@ fun FolderBrowserScreen(
 ) {
     val folders by viewModel.folderTree.collectAsStateWithLifecycle()
 
-    var currentLayout   by remember { mutableStateOf(layout) }
-    var currentSort     by remember { mutableStateOf(sort) }
-    var currentItemSize by remember { mutableStateOf(ItemSize.MEDIUM) }
-    var ascending       by remember { mutableStateOf(true) }
+    // rememberSaveable so layout/sort/size survive rotation and navigation.
+    var currentLayout   by rememberSaveable(stateSaver = LayoutSaver) { mutableStateOf(layout) }
+    var currentSort     by rememberSaveable(stateSaver = SortSaver)   { mutableStateOf(sort) }
+    var currentItemSize by rememberSaveable(stateSaver = SizeSaver)   { mutableStateOf(ItemSize.MEDIUM) }
+    var ascending       by rememberSaveable { mutableStateOf(true) }
     var sortMenuOpen    by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
@@ -72,7 +91,6 @@ fun FolderBrowserScreen(
 
     val isGrid = currentLayout == FolderLayout.GRID
 
-    // Grid columns: responsive to size selection so large items always fill the row.
     val gridColumns = when (currentItemSize) {
         ItemSize.SMALL  -> GridCells.Fixed(3)
         ItemSize.MEDIUM -> GridCells.Fixed(2)
@@ -81,9 +99,12 @@ fun FolderBrowserScreen(
 
     Column(modifier = modifier.fillMaxSize()) {
 
-        // ── Toolbar ──────────────────────────────────────────────────────────
+        // ── Toolbar — horizontally scrollable so nothing gets clipped on narrow screens.
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = {
@@ -184,10 +205,8 @@ private fun VolumeHeader(volume: String) {
 }
 
 private fun FolderSort.label() = when (this) {
-    FolderSort.NAME       -> "Name"
-    FolderSort.DATE       -> "Date"
-    FolderSort.SIZE       -> "Count"
-    FolderSort.RESOLUTION -> "Resolution"
+    FolderSort.NAME -> "Name"; FolderSort.DATE -> "Date"
+    FolderSort.SIZE -> "Count"; FolderSort.RESOLUTION -> "Resolution"
 }
 
 private fun sortComparator(sort: FolderSort): Comparator<FolderNode> = when (sort) {
