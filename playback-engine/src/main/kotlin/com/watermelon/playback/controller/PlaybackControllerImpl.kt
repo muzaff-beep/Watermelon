@@ -10,6 +10,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.watermelon.common.controller.PlaybackController
 import com.watermelon.common.model.PlaybackState
+import com.watermelon.common.model.RepeatMode
+import com.watermelon.common.model.SleepTimerMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,13 +27,10 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * Concrete [PlaybackController] backed by Media3 ExoPlayer. Exposes [playbackState],
- * [currentPositionMs], and [isSeekingFast] as StateFlows (Implementation Notes, Teams §3).
+ * Concrete [PlaybackController] backed by Media3 ExoPlayer.
  *
- * @param player        the ExoPlayer instance (injectable for tests with a fake Player).
- * @param scope         coroutine scope for the position ticker + sleep timer.
- * @param screenshotProvider supplies the current surface frame as a Bitmap (PlayerView /
- *                      PlayerSurface getBitmap()); null when no surface is attached.
+ * Repeat and shuffle delegate directly to ExoPlayer's built-in support.
+ * Sleep timer supports three modes: end-of-video, end-of-folder (stub), custom minutes.
  */
 @UnstableApi
 class PlaybackControllerImpl(
@@ -41,27 +40,45 @@ class PlaybackControllerImpl(
     private val screenshotProvider: (() -> Bitmap?)? = null
 ) : PlaybackController {
 
-    private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
-    override val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+    private val _playbackState   = MutableStateFlow(PlaybackState.IDLE)
+    private val _currentPosition = MutableStateFlow(0L)
+    private val _isSeekingFast   = MutableStateFlow(false)
+    private val _repeatMode      = MutableStateFlow(RepeatMode.NONE)
+    private val _shuffleEnabled  = MutableStateFlow(false)
 
-    private val _currentPositionMs = MutableStateFlow(0L)
-    override val currentPositionMs: StateFlow<Long> = _currentPositionMs.asStateFlow()
-
-    private val _isSeekingFast = MutableStateFlow(false)
-    override val isSeekingFast: StateFlow<Boolean> = _isSeekingFast.asStateFlow()
+    override val playbackState: StateFlow<PlaybackState>  = _playbackState.asStateFlow()
+    override val currentPositionMs: StateFlow<Long>       = _currentPosition.asStateFlow()
+    override val isSeekingFast: StateFlow<Boolean>        = _isSeekingFast.asStateFlow()
+    override val repeatMode: StateFlow<RepeatMode>        = _repeatMode.asStateFlow()
+    override val shuffleEnabled: StateFlow<Boolean>       = _shuffleEnabled.asStateFlow()
 
     private val sleepTimer = SleepTimerManager(scope) { pause() }
+    private var pendingSleepMode: SleepTimerMode? = null
     private var positionJob: Job? = null
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
-            _playbackState.value = when (state) {
-                Player.STATE_IDLE -> PlaybackState.IDLE
+            val mapped = when (state) {
+                Player.STATE_IDLE      -> PlaybackState.IDLE
                 Player.STATE_BUFFERING -> PlaybackState.BUFFERING
-                Player.STATE_READY ->
+                Player.STATE_READY     ->
                     if (player.playWhenReady) PlaybackState.PLAYING else PlaybackState.PAUSED
-                Player.STATE_ENDED -> PlaybackState.IDLE
-                else -> PlaybackState.IDLE
+                Player.STATE_ENDED     -> PlaybackState.IDLE
+                else                   -> PlaybackState.IDLE
+            }
+            _playbackState.value = mapped
+
+            // Sleep timer: end-of-video mode.
+            if (state == Player.STATE_ENDED &&
+                pendingSleepMode is SleepTimerMode.EndOfVideo) {
+                pendingSleepMode = null
+                pause()
+            }
+            // End-of-folder: stub — treated as end-of-video until queue management is built.
+            if (state == Player.STATE_ENDED &&
+                pendingSleepMode is SleepTimerMode.EndOfFolder) {
+                pendingSleepMode = null
+                pause()
             }
         }
 
@@ -77,9 +94,7 @@ class PlaybackControllerImpl(
         }
     }
 
-    init {
-        player.addListener(listener)
-    }
+    init { player.addListener(listener) }
 
     override fun play(uri: String, startPositionMs: Long) {
         _playbackState.value = PlaybackState.LOADING
@@ -89,29 +104,48 @@ class PlaybackControllerImpl(
         startPositionTicker()
     }
 
-    override fun pause() { player.playWhenReady = false }
-
+    override fun pause()  { player.playWhenReady = false }
     override fun resume() { player.playWhenReady = true }
 
     override fun seekTo(positionMs: Long) {
         player.seekTo(positionMs)
-        _currentPositionMs.value = positionMs
+        _currentPosition.value = positionMs
     }
 
-    /** 0.5f .. 2.0f — boundaries clamped per Manifest §4.2. */
     override fun setSpeed(speed: Float) {
-        val clamped = speed.coerceIn(MIN_SPEED, MAX_SPEED)
-        player.playbackParameters = PlaybackParameters(clamped)
+        player.playbackParameters = PlaybackParameters(speed.coerceIn(MIN_SPEED, MAX_SPEED))
     }
 
-    override fun setSleepTimer(minutes: Int) = sleepTimer.start(minutes)
-
-    override fun cancelSleepTimer() = sleepTimer.cancel()
-
-    /** Drives the VHS overlay: >0 marks fast seeking active. */
-    override fun setVhsIntensity(level: Float) {
-        _isSeekingFast.value = level > 0f
+    override fun setRepeat(mode: RepeatMode) {
+        _repeatMode.value = mode
+        player.repeatMode = when (mode) {
+            RepeatMode.NONE -> Player.REPEAT_MODE_OFF
+            RepeatMode.ONE  -> Player.REPEAT_MODE_ONE
+            RepeatMode.ALL  -> Player.REPEAT_MODE_ALL
+        }
     }
+
+    override fun setShuffle(enabled: Boolean) {
+        _shuffleEnabled.value = enabled
+        player.shuffleModeEnabled = enabled
+    }
+
+    override fun setSleepTimer(mode: SleepTimerMode) {
+        sleepTimer.cancel()
+        pendingSleepMode = null
+        when (mode) {
+            is SleepTimerMode.EndOfVideo  -> pendingSleepMode = mode
+            is SleepTimerMode.EndOfFolder -> pendingSleepMode = mode  // stub
+            is SleepTimerMode.Custom      -> sleepTimer.start(mode.minutes)
+        }
+    }
+
+    override fun cancelSleepTimer() {
+        sleepTimer.cancel()
+        pendingSleepMode = null
+    }
+
+    override fun setVhsIntensity(level: Float) { _isSeekingFast.value = level > 0f }
 
     override fun takeScreenshot(): String? {
         val bitmap = screenshotProvider?.invoke() ?: return null
@@ -134,15 +168,15 @@ class PlaybackControllerImpl(
         if (positionJob?.isActive == true) return
         positionJob = scope.launch {
             while (isActive) {
-                _currentPositionMs.value = player.currentPosition
+                _currentPosition.value = player.currentPosition
                 delay(POSITION_TICK_MS)
             }
         }
     }
 
     companion object {
-        const val MIN_SPEED = 0.5f
-        const val MAX_SPEED = 2.0f
+        const val MIN_SPEED        = 0.5f
+        const val MAX_SPEED        = 2.0f
         private const val POSITION_TICK_MS = 250L
     }
 }
