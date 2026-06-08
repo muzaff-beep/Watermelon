@@ -1,11 +1,16 @@
 package com.watermelon.app
 
 import android.Manifest
+import android.app.PictureInPictureParams
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
+import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +44,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.watermelon.common.controller.PlaybackController
+import com.watermelon.common.model.PlaybackState
 import com.watermelon.common.model.UserIntent
 import com.watermelon.common.model.VhsTier
 import com.watermelon.common.repository.FolderRepository
@@ -56,6 +62,7 @@ import com.watermelon.storage.repository.PlaylistRepositoryImpl
 import com.watermelon.subtitle.repository.SubtitleRepositoryImpl
 import com.watermelon.ui.screens.FolderBrowserScreen
 import com.watermelon.ui.screens.PlayerScreen
+import com.watermelon.ui.screens.ScreenshotMode
 import com.watermelon.ui.screens.SettingsScreen
 import com.watermelon.ui.screens.SettingsState
 import com.watermelon.ui.screens.VideoListScreen
@@ -64,47 +71,36 @@ import com.watermelon.ui.viewmodel.FolderViewModel
 import com.watermelon.ui.viewmodel.PlayerViewModel
 import com.watermelon.ui.viewmodel.VideoListViewModel
 import kotlinx.coroutines.launch
-import java.io.File
 
 /**
- * Single Activity hosting the Compose NavHost. This is the only place concrete
- * implementations are constructed and wired together (Integration Rule 2). Manual
- * constructor injection — no DI framework (Manifest §3).
+ * Single Activity hosting the Compose NavHost. Manual constructor injection — no DI framework
+ * (Manifest §3). Also handles PiP lifecycle: registers [PiPReceiver] to forward mini-control
+ * actions to the [PlaybackController].
  */
 @UnstableApi
 class MainActivity : ComponentActivity() {
 
-    // --- Manual dependency graph (created once per Activity) -------------------------------
     private val database by lazy { WatermelonDatabase(applicationContext) }
-
     private val phase1Sweep by lazy { Phase1Sweep(contentResolver) }
-
     private val indexer by lazy {
         MediaStoreIndexer(
-            phase1Sweep = phase1Sweep,
-            phase2Extractor = Phase2Extractor(applicationContext, database),
+            phase1Sweep      = phase1Sweep,
+            phase2Extractor  = Phase2Extractor(applicationContext, database),
             mediaUriProvider = { phase1Sweep.lastSweepUris() }
         )
     }
-
-    private val mediaRepository: MediaRepository by lazy {
-        MediaRepositoryImpl(database, indexer)
-    }
-    private val folderRepository: FolderRepository by lazy { FolderRepositoryImpl(indexer) }
-    @Suppress("unused")
-    private val playlistRepository: PlaylistRepository by lazy { PlaylistRepositoryImpl(database) }
-    @Suppress("unused")
-    private val subtitleRepository: SubtitleRepository by lazy {
-        SubtitleRepositoryImpl(applicationContext)
-    }
+    private val mediaRepository: MediaRepository   by lazy { MediaRepositoryImpl(database, indexer) }
+    private val folderRepository: FolderRepository  by lazy { FolderRepositoryImpl(indexer) }
+    @Suppress("unused") private val playlistRepository: PlaylistRepository by lazy { PlaylistRepositoryImpl(database) }
+    @Suppress("unused") private val subtitleRepository: SubtitleRepository by lazy { SubtitleRepositoryImpl(applicationContext) }
 
     private val exoPlayer by lazy { ExoPlayer.Builder(applicationContext).build() }
     private val playbackController: PlaybackController by lazy {
         PlaybackControllerImpl(applicationContext, exoPlayer)
     }
 
-    // Permission gate -----------------------------------------------------------------------
     private var permissionsGranted by mutableStateOf(false)
+    private var isPiPActive = false  // tracks whether we're in PiP mode
 
     private val requiredPermissions: Array<String> = when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
@@ -119,6 +115,27 @@ class MainActivity : ComponentActivity() {
         if (permissionsGranted) triggerInitialIndex()
     }
 
+    // PiP: forward broadcast actions to the controller.
+    private val pipActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                PiPReceiver.ACTION_PLAY_PAUSE -> {
+                    val state = playbackController.playbackState.value
+                    if (state == PlaybackState.PLAYING) playbackController.pause()
+                    else playbackController.resume()
+                }
+                PiPReceiver.ACTION_MUTE -> {
+                    val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+                    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                    val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                    am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, if (cur == 0) max / 2 else 0, 0)
+                }
+                PiPReceiver.ACTION_PREV -> { /* queue not yet implemented */ }
+                PiPReceiver.ACTION_NEXT -> { /* queue not yet implemented */ }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         startFileLogging()
         super.onCreate(savedInstanceState)
@@ -126,27 +143,47 @@ class MainActivity : ComponentActivity() {
         permissionsGranted = requiredPermissions.all { perm ->
             ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED
         }
-        if (permissionsGranted) {
-            triggerInitialIndex()
-        } else {
-            permissionLauncher.launch(requiredPermissions)
-        }
+        if (permissionsGranted) triggerInitialIndex()
+        else permissionLauncher.launch(requiredPermissions)
 
         setContent {
             WatermelonTheme {
                 val navController = rememberNavController()
-                if (permissionsGranted) {
-                    WatermelonNavHost(navController)
-                } else {
-                    PermissionPrompt(onRequest = { permissionLauncher.launch(requiredPermissions) })
-                }
+                if (permissionsGranted) WatermelonNavHost(navController)
+                else PermissionPrompt(onRequest = { permissionLauncher.launch(requiredPermissions) })
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val filter = IntentFilter().apply {
+            addAction(PiPReceiver.ACTION_PLAY_PAUSE)
+            addAction(PiPReceiver.ACTION_MUTE)
+            addAction(PiPReceiver.ACTION_PREV)
+            addAction(PiPReceiver.ACTION_NEXT)
+        }
+        registerReceiver(pipActionReceiver, filter)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        unregisterReceiver(pipActionReceiver)
     }
 
     override fun onDestroy() {
         exoPlayer.release()
         super.onDestroy()
+    }
+
+    /** Auto-enter PiP if PiP is currently enabled when user presses Home. */
+    override fun onUserLeaveHint() {
+        if (isPiPActive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .build()
+            enterPictureInPictureMode(params)
+        }
     }
 
     private fun triggerInitialIndex() {
@@ -155,54 +192,50 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun WatermelonNavHost(navController: NavHostController) {
+        var settingsState by remember { mutableStateOf(SettingsState()) }
+
         NavHost(navController = navController, startDestination = Routes.FOLDERS) {
             composable(Routes.FOLDERS) {
                 val vm = remember { FolderViewModel(folderRepository, mediaRepository) }
                 FolderBrowserScreen(
-                    viewModel = vm,
-                    onFolderClick = { folder ->
-                        navController.navigate("videos/${Uri.encode(folder.path)}")
-                    }
+                    viewModel     = vm,
+                    onFolderClick = { folder -> navController.navigate("videos/${Uri.encode(folder.path)}") }
                 )
             }
             composable(
-                route = "videos/{folderPath}",
+                route     = "videos/{folderPath}",
                 arguments = listOf(navArgument("folderPath") { type = NavType.StringType })
             ) { backStackEntry ->
-                val folderPath = Uri.decode(
-                    backStackEntry.arguments?.getString("folderPath").orEmpty()
-                )
-                val vm = remember(folderPath) {
-                    VideoListViewModel(mediaRepository, folderPath)
-                }
+                val folderPath = Uri.decode(backStackEntry.arguments?.getString("folderPath").orEmpty())
+                val vm = remember(folderPath) { VideoListViewModel(mediaRepository, folderPath) }
                 VideoListScreen(
-                    viewModel = vm,
-                    onVideoClick = { item ->
-                        navController.navigate("player/${Uri.encode(item.uri)}")
-                    }
+                    viewModel    = vm,
+                    onVideoClick = { item -> navController.navigate("player/${Uri.encode(item.uri)}") }
                 )
             }
             composable(
-                route = "player/{uri}",
+                route     = "player/{uri}",
                 arguments = listOf(navArgument("uri") { type = NavType.StringType })
             ) { backStackEntry ->
                 val mediaUri = Uri.decode(backStackEntry.arguments?.getString("uri").orEmpty())
                 val vm = remember { PlayerViewModel(playbackController) }
                 LaunchedEffect(mediaUri) { vm.onIntent(UserIntent.Play(mediaUri)) }
                 PlayerScreen(
-                    viewModel = vm,
-                    onBack = { navController.popBackStack() },
-                    vhsTier = VhsTier.C,
+                    viewModel    = vm,
+                    onBack       = { navController.popBackStack() },
+                    vhsTier      = VhsTier.C,
                     vhsIntensity = 0.5f,
-                    durationMs = exoPlayer.duration.coerceAtLeast(0L),
+                    durationMs   = exoPlayer.duration.coerceAtLeast(0L),
                     currentSubtitle = null,
-                    surface = { modifier ->
+                    uri          = mediaUri,
+                    screenshotMode = settingsState.screenshotMode,
+                    surface      = { modifier ->
                         AndroidView(
                             modifier = modifier,
-                            factory = { ctx ->
+                            factory  = { ctx ->
                                 PlayerView(ctx).apply {
-                                    player = exoPlayer
-                                    useController = false
+                                    player        = exoPlayer
+                                    useController = false   // custom controls only
                                 }
                             }
                         )
@@ -210,8 +243,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             composable(Routes.SETTINGS) {
-                var settings by remember { mutableStateOf(SettingsState()) }
-                SettingsScreen(state = settings, onStateChange = { settings = it })
+                SettingsScreen(state = settingsState, onStateChange = { settingsState = it })
             }
         }
     }
@@ -222,7 +254,7 @@ class MainActivity : ComponentActivity() {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(24.dp)
+                modifier            = Modifier.padding(24.dp)
             ) {
                 Text(
                     "Watermelon needs access to your videos to build the library.",
@@ -234,23 +266,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startFileLogging() {
-    val logFile = java.io.File(
-        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
-        "watermelon_log_${System.currentTimeMillis()}.txt"
-    )
-    Thread {
-        try {
-            Thread.sleep(6000)
-            val process = Runtime.getRuntime().exec("logcat -d -v time")
-            logFile.writeText(process.inputStream.bufferedReader().readText())
-        } catch (e: Exception) {
-            logFile.writeText("Logger failed: ${e.message}")
-        }
-    }.start()
-}
+        val logFile = java.io.File(
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
+            "watermelon_log_${System.currentTimeMillis()}.txt"
+        )
+        Thread {
+            try {
+                Thread.sleep(6000)
+                val process = Runtime.getRuntime().exec("logcat -d -v time")
+                logFile.writeText(process.inputStream.bufferedReader().readText())
+            } catch (e: Exception) {
+                logFile.writeText("Logger failed: ${e.message}")
+            }
+        }.start()
+    }
 
     private object Routes {
-        const val FOLDERS = "folders"
+        const val FOLDERS  = "folders"
         const val SETTINGS = "settings"
     }
 }
