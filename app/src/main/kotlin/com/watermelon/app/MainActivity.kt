@@ -181,6 +181,7 @@ class MainActivity : ComponentActivity() {
 
     /** Auto-enter PiP if PiP is currently enabled when user presses Home. */
     override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
         if (isPiPActive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
