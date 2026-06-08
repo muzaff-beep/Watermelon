@@ -202,7 +202,7 @@ class MainActivity : ComponentActivity() {
                             factory = { ctx ->
                                 PlayerView(ctx).apply {
                                     player = exoPlayer
-                                    useController = true
+                                    useController = false
                                 }
                             }
                         )
