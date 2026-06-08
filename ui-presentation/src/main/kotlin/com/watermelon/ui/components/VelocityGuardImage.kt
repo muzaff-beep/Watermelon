@@ -38,15 +38,18 @@ fun VelocityGuardImage(
     val context = LocalContext.current
 
     val thumbnail by produceState<Bitmap?>(initialValue = null, uri, durationMs) {
-        value = if (uri.isNullOrEmpty()) null else {
-            // Return cached version immediately if available.
-            ThumbnailCache.get(uri) ?: run {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (uri.isNullOrEmpty()) {
+            value = null
+        } else {
+            val cached = ThumbnailCache.get(uri)
+            if (cached != null) {
+                value = cached
+            } else {
+                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     runCatching {
                         val retriever = MediaMetadataRetriever()
                         try {
                             retriever.setDataSource(context, Uri.parse(uri))
-                            // 10% into the video in microseconds. Falls back to 3 s.
                             val frameTimeMicros =
                                 if (durationMs > 0L) durationMs * 100L else 3_000_000L
                             val raw = retriever.getFrameAtTime(
@@ -54,7 +57,6 @@ fun VelocityGuardImage(
                                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC
                             )
                             raw?.let {
-                                // Scale down to thumbnail size to keep memory usage low.
                                 val scaled = Bitmap.createScaledBitmap(it, 128, 80, true)
                                 if (scaled !== it) it.recycle()
                                 ThumbnailCache.put(uri, scaled)
