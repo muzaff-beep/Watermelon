@@ -10,6 +10,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,7 +33,8 @@ data class SettingsState(
     val memorySafety: Boolean        = false,
     val fullFolderAccess: Boolean    = false,
     // Player settings
-    val screenshotMode: ScreenshotMode = ScreenshotMode.SINGLE
+    val screenshotMode: ScreenshotMode = ScreenshotMode.SINGLE,
+    val folderVisibility: Map<String, Boolean> = emptyMap()
 )
 
 enum class VhsIntensity { OFF, LOW, MED, HIGH }
@@ -44,6 +46,7 @@ enum class ScreenshotMode { SINGLE, BURST }
 fun SettingsScreen(
     state: SettingsState,
     onStateChange: (SettingsState) -> Unit,
+    onFolderVisibilityClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -95,6 +98,16 @@ fun SettingsScreen(
         item {
             ToggleRow("Full folder access (power-user)", state.fullFolderAccess) {
                 onStateChange(state.copy(fullFolderAccess = it))
+            }
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Folder visibility", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                TextButton(onClick = onFolderVisibilityClick) { Text("Manage") }
             }
         }
     }
