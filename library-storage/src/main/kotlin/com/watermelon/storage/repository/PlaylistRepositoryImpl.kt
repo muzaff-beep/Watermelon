@@ -156,46 +156,55 @@ class PlaylistRepositoryImpl(
 
     private fun observeUserPlaylists(): Flow<List<Playlist>> = flow {
         val playlists = mutableListOf<Playlist>()
-        db.readableDatabase.rawQuery(
-            "SELECT id, name, createdAt FROM Playlists WHERE type = ? ORDER BY createdAt ASC",
-            arrayOf(PlaylistType.USER.name)
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                val id = cursor.getString(0)
-                val count = db.readableDatabase.rawQuery(
-                    "SELECT COUNT(*) FROM PlaylistItems WHERE playlistId = ?", arrayOf(id)
-                ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
-                playlists += Playlist(
-                    id        = id,
-                    name      = cursor.getString(1),
-                    type      = PlaylistType.USER,
-                    itemCount = count,
-                    createdAt = cursor.getLong(2)
-                )
+        runCatching {
+            db.readableDatabase.rawQuery(
+                "SELECT id, name, createdAt FROM Playlists WHERE type = ? ORDER BY createdAt ASC",
+                arrayOf(PlaylistType.USER.name)
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getString(0)
+                    val count = runCatching {
+                        db.readableDatabase.rawQuery(
+                            "SELECT COUNT(*) FROM PlaylistItems WHERE playlistId = ?", arrayOf(id)
+                        ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+                    }.getOrDefault(0)
+                    playlists += Playlist(
+                        id        = id,
+                        name      = cursor.getString(1),
+                        type      = PlaylistType.USER,
+                        itemCount = count,
+                        createdAt = cursor.getLong(2)
+                    )
+                }
             }
         }
         emit(playlists)
     }.flowOn(Dispatchers.IO)
 
-    private fun getFavouriteCount(): Int =
+    private fun getFavouriteCount(): Int = runCatching {
         db.readableDatabase.rawQuery("SELECT COUNT(*) FROM Favourites", null)
             .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    }.getOrDefault(0)
 
     private fun getFavouriteUris(): Set<String> {
         val uris = mutableSetOf<String>()
-        db.readableDatabase.rawQuery("SELECT uri FROM Favourites", null).use { cursor ->
-            while (cursor.moveToNext()) uris += cursor.getString(0)
+        runCatching {
+            db.readableDatabase.rawQuery("SELECT uri FROM Favourites", null).use { cursor ->
+                while (cursor.moveToNext()) uris += cursor.getString(0)
+            }
         }
         return uris
     }
 
     private fun getPlaylistItemUris(playlistId: String): List<String> {
         val uris = mutableListOf<String>()
-        db.readableDatabase.rawQuery(
-            "SELECT uri FROM PlaylistItems WHERE playlistId = ? ORDER BY addedAt ASC",
-            arrayOf(playlistId)
-        ).use { cursor ->
-            while (cursor.moveToNext()) uris += cursor.getString(0)
+        runCatching {
+            db.readableDatabase.rawQuery(
+                "SELECT uri FROM PlaylistItems WHERE playlistId = ? ORDER BY addedAt ASC",
+                arrayOf(playlistId)
+            ).use { cursor ->
+                while (cursor.moveToNext()) uris += cursor.getString(0)
+            }
         }
         return uris
     }
