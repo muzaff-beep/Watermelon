@@ -1,13 +1,27 @@
 package com.watermelon.common.model
 
 /**
- * A user playlist. Referenced by [com.watermelon.common.repository.PlaylistRepository];
- * [items] holds the ordered media URIs that belong to the playlist.
+ * Represents a playlist — either a system playlist (Recently Added, Favourites)
+ * or a user-created personal playlist.
+ *
+ * System playlists have fixed [id]s and cannot be renamed or deleted.
  */
 data class Playlist(
     val id: String,
     val name: String,
-    val createdAt: Long,
-    val updatedAt: Long,
-    val items: List<String> = emptyList()
+    val type: PlaylistType,
+    val itemCount: Int = 0,
+    val totalDurationMs: Long = 0L,
+    val createdAt: Long = 0L
 )
+
+enum class PlaylistType {
+    RECENTLY_ADDED,  // System — auto-populated, last 7 days
+    FAVOURITES,      // System — user manually adds videos
+    USER             // Personal — user-created
+}
+
+object SystemPlaylist {
+    const val ID_RECENTLY_ADDED = "__recently_added__"
+    const val ID_FAVOURITES     = "__favourites__"
+}
