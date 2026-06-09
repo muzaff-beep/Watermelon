@@ -84,6 +84,4 @@ class FolderViewModel(
     private fun refresh() {
         viewModelScope.launch { mediaRepository.refreshIndex() }
     }
-
-    suspend fun folderAt(path: String): FolderNode? = folderRepository.getFolder(path)
 }
