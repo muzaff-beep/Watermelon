@@ -1,0 +1,42 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Main Folder Body - Rounded Watermelon Red -->
+  <rect x="85" y="165" rx="65" ry="55" width="342" height="255" fill="#FF2F4F" />
+
+  <!-- Folder Tab - Rounder and Playful -->
+  <path d="M130 165 L255 165 L285 115 L395 115 L415 165 Z" fill="#FF2F4F"/>
+  
+  <!-- Tab Inner Highlight -->
+  <path d="M137 158 L250 158 L275 122 L390 122 L407 158 Z" fill="#FF5E7A" opacity="0.92"/>
+
+  <!-- Much Larger Green Rind Area -->
+  <!-- Bottom thick rounded rind -->
+  <rect x="85" y="385" rx="45" ry="35" width="342" height="75" fill="#4CF38A"/>
+  
+  <!-- Extra green side panels for more green dominance -->
+  <rect x="85" y="200" rx="45" ry="55" width="45" height="195" fill="#4CF38A" opacity="0.9"/>
+  <rect x="382" y="200" rx="45" ry="55" width="45" height="195" fill="#4CF38A" opacity="0.9"/>
+
+  <!-- Dark Green Outer Rind (thicker & fun) -->
+  <rect x="85" y="415" rx="38" ry="28" width="342" height="48" fill="#22C55E"/>
+
+  <!-- Black Seeds - More & Playfully scattered -->
+  <ellipse cx="165" cy="255" rx="14" ry="25" fill="#1C2526" transform="rotate(-40 165 255)"/>
+  <ellipse cx="235" cy="235" rx="12" ry="21" fill="#1C2526" transform="rotate(-18 235 235)"/>
+  <ellipse cx="305" cy="268" rx="15" ry="24" fill="#1C2526" transform="rotate(42 305 268)"/>
+  <ellipse cx="185" cy="325" rx="13" ry="22" fill="#1C2526" transform="rotate(-50 185 325)"/>
+  <ellipse cx="355" cy="315" rx="14" ry="20" fill="#1C2526" transform="rotate(30 355 315)"/>
+  <ellipse cx="265" cy="370" rx="11" ry="20" fill="#1C2526" transform="rotate(-35 265 370)"/>
+  <ellipse cx="215" cy="292" rx="12" ry="19" fill="#1C2526" transform="rotate(38 215 292)"/>
+  <ellipse cx="335" cy="355" rx="12" ry="18" fill="#1C2526" transform="rotate(-28 335 355)"/>
+  <ellipse cx="280" cy="245" rx="10" ry="17" fill="#1C2526" transform="rotate(45 280 245)"/>
+
+  <!-- Big Glossy Highlight - Curvier & Fun -->
+  <path d="M125 190 Q230 145 365 185 Q410 255 385 385 Q260 415 140 395 Z" fill="#FFFFFF" opacity="0.35"/>
+
+  <!-- Fun Top Edge Shine -->
+  <path d="M135 165 Q255 138 395 165" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-opacity="0.28" stroke-linejoin="round"/>
+
+  <!-- Playful Folder Outline -->
+  <rect x="85" y="165" rx="65" ry="55" width="342" height="255" fill="none" stroke="#1C2526" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M130 165 L255 165 L285 115 L395 115 L415 165" fill="none" stroke="#1C2526" stroke-width="18" stroke-linejoin="round"/>
+</svg>
