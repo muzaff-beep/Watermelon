@@ -1,6 +1,9 @@
 package com.watermelon.ui.screens
 
-import androidx.compose.foundation.clickable
+import android.content.Intent
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,6 +33,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -43,15 +48,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.watermelon.common.model.MediaItem
+import com.watermelon.common.model.Playlist
 import com.watermelon.ui.R
 import com.watermelon.ui.components.VelocityGuardImage
+import com.watermelon.ui.components.VideoSelectionBar
 import com.watermelon.ui.components.WatermelonLoadingAnimation
 import com.watermelon.ui.viewmodel.VideoListViewModel
 import kotlinx.coroutines.delay
@@ -72,26 +79,27 @@ private val SizeSaver2 = androidx.compose.runtime.saveable.Saver<ItemSize, Strin
     restore = { ItemSize.valueOf(it) }
 )
 
-/**
- * Video list for a single folder or playlist.
- * Supports grid/list toggle, sort, size picker, pull-to-refresh, and ⭐ new-file badge.
- */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun VideoListScreen(
     viewModel: VideoListViewModel,
     onVideoClick: (MediaItem) -> Unit,
     onRefresh: () -> Unit = {},
+    availablePlaylists: List<Playlist> = emptyList(),
     modifier: Modifier = Modifier
 ) {
-    val videos by viewModel.videos.collectAsStateWithLifecycle()
+    val context     = LocalContext.current
+    val videos      by viewModel.videos.collectAsStateWithLifecycle()
+    val selection   by viewModel.selection.collectAsStateWithLifecycle()
 
-    var currentSort     by rememberSaveable(stateSaver = SortSaver2)   { mutableStateOf(VideoSort.NAME) }
+    var currentSort     by rememberSaveable(stateSaver = SortSaver2)  { mutableStateOf(VideoSort.NAME) }
     var ascending       by rememberSaveable { mutableStateOf(true) }
-    var currentItemSize by rememberSaveable(stateSaver = SizeSaver2)   { mutableStateOf(ItemSize.MEDIUM) }
-    var currentLayout   by rememberSaveable(stateSaver = LayoutSaver)  { mutableStateOf(VideoLayout.LIST) }
+    var currentItemSize by rememberSaveable(stateSaver = SizeSaver2)  { mutableStateOf(ItemSize.MEDIUM) }
+    var currentLayout   by rememberSaveable(stateSaver = LayoutSaver) { mutableStateOf(VideoLayout.LIST) }
     var sortMenuOpen    by remember { mutableStateOf(false) }
     var isRefreshing    by remember { mutableStateOf(false) }
+    var showDeleteDialog     by remember { mutableStateOf(false) }
+    var showPlaylistPicker   by remember { mutableStateOf(false) }
 
     LaunchedEffect(isRefreshing) {
         if (isRefreshing) { onRefresh(); delay(2_000); isRefreshing = false }
@@ -105,10 +113,10 @@ fun VideoListScreen(
         videos.sortedWith(if (ascending) cmp else Comparator { a, b -> cmp.compare(b, a) })
     }
 
-    val listState    = rememberLazyListState()
-    val gridState    = rememberLazyGridState()
-    val isGrid       = currentLayout == VideoLayout.GRID
-    val isScrolling  by remember { derivedStateOf { listState.isScrollInProgress || gridState.isScrollInProgress } }
+    val listState   = rememberLazyListState()
+    val gridState   = rememberLazyGridState()
+    val isGrid      = currentLayout == VideoLayout.GRID
+    val isScrolling by remember { derivedStateOf { listState.isScrollInProgress || gridState.isScrollInProgress } }
 
     val gridColumns = when (currentItemSize) {
         ItemSize.SMALL  -> GridCells.Fixed(3)
@@ -116,110 +124,194 @@ fun VideoListScreen(
         ItemSize.LARGE  -> GridCells.Fixed(2)
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    // Delete confirmation dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title   = { Text("Delete ${selection.count} video(s)?") },
+            text    = { Text("This will permanently delete the selected files from your device.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteSelected(context.contentResolver)
+                    showDeleteDialog = false
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 
-        // ── Toolbar ───────────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Grid/list toggle
-            IconButton(onClick = {
-                currentLayout = if (isGrid) VideoLayout.LIST else VideoLayout.GRID
-            }) {
-                Icon(
-                    painterResource(if (isGrid) R.drawable.ic_view_list else R.drawable.ic_view_grid),
-                    contentDescription = if (isGrid) "List view" else "Grid view",
-                    tint = MaterialTheme.colorScheme.onSurface
+    // Playlist picker dialog
+    if (showPlaylistPicker) {
+        AlertDialog(
+            onDismissRequest = { showPlaylistPicker = false },
+            title = { Text("Add to playlist") },
+            text  = {
+                Column {
+                    availablePlaylists.filter {
+                        it.type == com.watermelon.common.model.PlaylistType.USER
+                    }.forEach { playlist ->
+                        TextButton(
+                            onClick = {
+                                viewModel.addSelectedToPlaylist(playlist.id)
+                                showPlaylistPicker = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(playlist.name) }
+                    }
+                    if (availablePlaylists.none { it.type == com.watermelon.common.model.PlaylistType.USER }) {
+                        Text(
+                            "No playlists yet. Create one in the folder browser.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPlaylistPicker = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    Scaffold(
+        modifier = modifier,
+        bottomBar = {
+            if (selection.isActive) {
+                VideoSelectionBar(
+                    selectedCount     = selection.count,
+                    onShare = {
+                        val intent = viewModel.buildShareIntent()
+                        context.startActivity(Intent.createChooser(intent, "Share videos"))
+                        viewModel.clearSelection()
+                    },
+                    onDelete          = { showDeleteDialog = true },
+                    onAddToPlaylist   = { showPlaylistPicker = true },
+                    onAddToFavourites = { viewModel.addSelectedToFavourites() }
                 )
             }
+        }
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
-            // Sort dropdown
-            Box {
-                TextButton(onClick = { sortMenuOpen = true }) { Text("Sort: ${currentSort.label}") }
-                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
-                    VideoSort.values().forEach { opt ->
-                        DropdownMenuItem(
-                            text = { Text(opt.label) },
-                            onClick = { currentSort = opt; sortMenuOpen = false }
+            // ── Toolbar ───────────────────────────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (selection.isActive) {
+                    // Selection mode toolbar
+                    TextButton(onClick = { viewModel.selectAll() }) { Text("Select all") }
+                    TextButton(onClick = { viewModel.clearSelection() }) { Text("Cancel") }
+                } else {
+                    // Normal toolbar
+                    IconButton(onClick = {
+                        currentLayout = if (isGrid) VideoLayout.LIST else VideoLayout.GRID
+                    }) {
+                        Icon(
+                            painterResource(if (isGrid) R.drawable.ic_view_list else R.drawable.ic_view_grid),
+                            contentDescription = if (isGrid) "List view" else "Grid view",
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                    Box {
+                        TextButton(onClick = { sortMenuOpen = true }) { Text("Sort: ${currentSort.label}") }
+                        DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                            VideoSort.values().forEach { opt ->
+                                DropdownMenuItem(
+                                    text    = { Text(opt.label) },
+                                    onClick = { currentSort = opt; sortMenuOpen = false }
+                                )
+                            }
+                        }
+                    }
+                    IconButton(onClick = { ascending = !ascending }) {
+                        Icon(
+                            painterResource(if (ascending) R.drawable.ic_sort_ascending else R.drawable.ic_sort_descending),
+                            contentDescription = if (ascending) "Ascending" else "Descending",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    ItemSize.values().forEach { size ->
+                        TextButton(onClick = { currentItemSize = size }) {
+                            Text(
+                                text  = size.label,
+                                color = if (size == currentItemSize) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             }
 
-            // Ascending/descending
-            IconButton(onClick = { ascending = !ascending }) {
-                Icon(
-                    painterResource(if (ascending) R.drawable.ic_sort_ascending else R.drawable.ic_sort_descending),
-                    contentDescription = if (ascending) "Ascending" else "Descending",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
+            HorizontalDivider()
 
-            // Size picker
-            ItemSize.values().forEach { size ->
-                TextButton(onClick = { currentItemSize = size }) {
-                    Text(
-                        text  = size.label,
-                        color = if (size == currentItemSize) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface
-                    )
+            // ── Content ───────────────────────────────────────────────────────
+            if (sorted.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    WatermelonLoadingAnimation(modifier = Modifier.size(160.dp))
                 }
+                return@Column
             }
-        }
 
-        HorizontalDivider()
-
-        // ── Content ───────────────────────────────────────────────────────────
-        if (sorted.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                WatermelonLoadingAnimation(modifier = Modifier.size(160.dp))
-            }
-            return@Column
-        }
-
-        PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = { isRefreshing = true }) {
-            when (currentLayout) {
-                VideoLayout.LIST -> LazyColumn(
-                    state   = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    items(sorted, key = { it.uri }) { item ->
-                        VideoListItem(
-                            item            = item,
-                            itemSize        = currentItemSize,
-                            isGrid          = false,
-                            isScrollingFast = isScrolling,
-                            onClick         = {
-                                viewModel.markPlayed(item.uri)
-                                onVideoClick(item)
-                            }
-                        )
+            PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = { isRefreshing = true }) {
+                when (currentLayout) {
+                    VideoLayout.LIST -> LazyColumn(
+                        state   = listState,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items(sorted, key = { it.uri }) { item ->
+                            VideoListItem(
+                                item            = item,
+                                itemSize        = currentItemSize,
+                                isGrid          = false,
+                                isScrollingFast = isScrolling,
+                                isSelected      = selection.contains(item.uri),
+                                selectionActive = selection.isActive,
+                                onClick         = {
+                                    if (selection.isActive) {
+                                        viewModel.onToggleSelect(item.uri)
+                                    } else {
+                                        viewModel.markPlayed(item.uri)
+                                        onVideoClick(item)
+                                    }
+                                },
+                                onLongClick     = { viewModel.onLongPress(item.uri) }
+                            )
+                        }
                     }
-                }
 
-                VideoLayout.GRID -> LazyVerticalGrid(
-                    state   = gridState,
-                    columns = gridColumns,
-                    modifier = Modifier.fillMaxSize().padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement   = Arrangement.spacedBy(8.dp)
-                ) {
-                    gridItems(sorted, key = { it.uri }) { item ->
-                        VideoListItem(
-                            item            = item,
-                            itemSize        = currentItemSize,
-                            isGrid          = true,
-                            isScrollingFast = isScrolling,
-                            onClick         = {
-                                viewModel.markPlayed(item.uri)
-                                onVideoClick(item)
-                            }
-                        )
+                    VideoLayout.GRID -> LazyVerticalGrid(
+                        state   = gridState,
+                        columns = gridColumns,
+                        modifier = Modifier.fillMaxSize().padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement   = Arrangement.spacedBy(8.dp)
+                    ) {
+                        gridItems(sorted, key = { it.uri }) { item ->
+                            VideoListItem(
+                                item            = item,
+                                itemSize        = currentItemSize,
+                                isGrid          = true,
+                                isScrollingFast = isScrolling,
+                                isSelected      = selection.contains(item.uri),
+                                selectionActive = selection.isActive,
+                                onClick         = {
+                                    if (selection.isActive) {
+                                        viewModel.onToggleSelect(item.uri)
+                                    } else {
+                                        viewModel.markPlayed(item.uri)
+                                        onVideoClick(item)
+                                    }
+                                },
+                                onLongClick     = { viewModel.onLongPress(item.uri) }
+                            )
+                        }
                     }
                 }
             }
@@ -227,15 +319,19 @@ fun VideoListScreen(
     }
 }
 
-// ── Video item composable ─────────────────────────────────────────────────────
+// ── Video item ────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VideoListItem(
     item: MediaItem,
     itemSize: ItemSize,
     isGrid: Boolean,
     isScrollingFast: Boolean,
-    onClick: () -> Unit
+    isSelected: Boolean,
+    selectionActive: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     val thumbH: Dp = when (itemSize) {
         ItemSize.SMALL  -> if (isGrid) 72.dp  else 40.dp
@@ -247,13 +343,18 @@ private fun VideoListItem(
         ItemSize.MEDIUM -> MaterialTheme.typography.bodyMedium
         ItemSize.LARGE  -> MaterialTheme.typography.bodyLarge
     }
+    val selectedBorder = if (isSelected)
+        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+    else Modifier
+
+    val clickModifier = Modifier
+        .clip(RoundedCornerShape(8.dp))
+        .then(selectedBorder)
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick)
 
     if (isGrid) {
         Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onClick)
-                .padding(4.dp),
+            modifier = clickModifier.padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             VelocityGuardImage(
@@ -264,28 +365,26 @@ private fun VideoListItem(
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text      = item.displayName,
-                    style     = textStyle,
-                    maxLines  = 2,
-                    overflow  = TextOverflow.Ellipsis,
-                    modifier  = Modifier.weight(1f)
+                    text     = item.displayName,
+                    style    = textStyle,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
                 if (item.lastPlayedAt == null) {
                     Icon(
                         painterResource(R.drawable.ic_badge_new),
                         contentDescription = "New",
                         tint     = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(13.dp).padding(start = 4.dp)
+                        modifier = Modifier.size(13.dp)
                     )
                 }
             }
         }
     } else {
         Row(
-            modifier = Modifier
+            modifier = clickModifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onClick)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -313,7 +412,7 @@ private fun VideoListItem(
                             painterResource(R.drawable.ic_badge_new),
                             contentDescription = "New",
                             tint     = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(13.dp).padding(start = 4.dp)
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
