@@ -276,10 +276,15 @@ class MainActivity : ComponentActivity() {
                 arguments = listOf(navArgument("folderPath") { type = NavType.StringType })
             ) { backStackEntry ->
                 val folderPath = Uri.decode(backStackEntry.arguments?.getString("folderPath").orEmpty())
-                val vm = remember(folderPath) { VideoListViewModel(mediaRepository, folderPath) }
+                val vm = remember(folderPath) {
+                    VideoListViewModel(mediaRepository, folderPath, playlistRepository)
+                }
+                val playlists by playlistRepository.observeAll()
+                    .collectAsStateWithLifecycle(initialValue = emptyList())
                 VideoListScreen(
-                    viewModel    = vm,
-                    onVideoClick = { item -> navController.navigate("player/${Uri.encode(item.uri)}") }
+                    viewModel          = vm,
+                    onVideoClick       = { item -> navController.navigate("player/${Uri.encode(item.uri)}") },
+                    availablePlaylists = playlists
                 )
             }
             composable(
