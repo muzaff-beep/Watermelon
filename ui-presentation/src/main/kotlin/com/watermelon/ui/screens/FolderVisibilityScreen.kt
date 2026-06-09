@@ -42,7 +42,7 @@ fun FolderVisibilityScreen(
             text     = "Hidden folders are excluded from the library index.",
             style    = MaterialTheme.typography.bodySmall,
             color    = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, bottom = 8.dp)
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
         )
         HorizontalDivider()
 
