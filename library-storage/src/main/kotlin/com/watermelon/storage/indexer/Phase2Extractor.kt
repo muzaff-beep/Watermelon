@@ -36,7 +36,8 @@ class Phase2Extractor(
             MediaStore.Video.Media.DURATION,
             MediaStore.Video.Media.WIDTH,
             MediaStore.Video.Media.HEIGHT,
-            MediaStore.Video.Media.MIME_TYPE
+            MediaStore.Video.Media.MIME_TYPE,
+            MediaStore.Video.Media.DATE_ADDED
         )
 
         context.contentResolver.query(
@@ -51,6 +52,7 @@ class Phase2Extractor(
             val idxWidth       = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
             val idxHeight      = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
             val idxMime        = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.MIME_TYPE)
+            val idxDateAdded   = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
 
             while (cursor.moveToNext()) {
                 val id          = cursor.getLong(idxId)
@@ -64,25 +66,26 @@ class Phase2Extractor(
                 val width       = cursor.getInt(idxWidth)
                 val height      = cursor.getInt(idxHeight)
                 val mime        = cursor.getString(idxMime) ?: ""
+                val dateAdded   = cursor.getLong(idxDateAdded) * 1000L  // seconds -> ms
 
                 // 1. INSERT OR IGNORE — sets firstSeenAt only for new rows.
                 db.execSQL(
                     """INSERT OR IGNORE INTO MediaItems
                        (mediaId,fileSize,displayName,parentFolder,
-                        durationMs,width,height,mimeType,firstSeenAt)
-                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                        durationMs,width,height,mimeType,firstSeenAt,dateAdded)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
                     arrayOf(uriString, size, displayName, bucket,
-                            duration, width, height, mime, now)
+                            duration, width, height, mime, now, dateAdded)
                 )
 
                 // 2. UPDATE — refreshes metadata; never touches firstSeenAt or lastPlayedAt.
                 db.execSQL(
                     """UPDATE MediaItems SET
                        fileSize=?,displayName=?,parentFolder=?,
-                       durationMs=?,width=?,height=?,mimeType=?
+                       durationMs=?,width=?,height=?,mimeType=?,dateAdded=?
                        WHERE mediaId=?""",
                     arrayOf(size, displayName, bucket,
-                            duration, width, height, mime, uriString)
+                            duration, width, height, mime, dateAdded, uriString)
                 )
             }
         }
