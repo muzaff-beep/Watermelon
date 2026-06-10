@@ -34,4 +34,10 @@ interface PlaylistRepository {
 
     /** Remove a video from a user playlist. */
     suspend fun removeFromPlaylist(playlistId: String, uri: String)
+
+    /**
+     * Persist a manual custom order for a container (user playlist id or Favourites id).
+     * [orderedUris] is the full list in the desired order. Recently Added is not supported.
+     */
+    suspend fun saveCustomOrder(containerId: String, orderedUris: List<String>)
 }
