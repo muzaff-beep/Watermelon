@@ -39,7 +39,9 @@ class WatermelonDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     private fun runMigrations(db: SQLiteDatabase, fromVersion: Int, toVersion: Int) {
+        com.watermelon.common.util.FileLogger.i("DB", "runMigrations $fromVersion -> $toVersion")
         for (version in fromVersion until toVersion) {
+            com.watermelon.common.util.FileLogger.i("DB", "applying migration step for version $version")
             when (version) {
                 1 -> MigrationV1ToV2.migrate(db)
                 2 -> MigrationV2ToV3.migrate(db)
@@ -51,6 +53,7 @@ class WatermelonDatabase(context: Context) : SQLiteOpenHelper(
                 8 -> MigrationV8ToV9.migrate(db)
             }
         }
+        com.watermelon.common.util.FileLogger.i("DB", "migrations complete, now at v$toVersion")
     }
 
     private fun createBaselineV1(db: SQLiteDatabase) {
