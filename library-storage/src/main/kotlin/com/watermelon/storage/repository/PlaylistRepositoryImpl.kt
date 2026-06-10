@@ -63,21 +63,55 @@ class PlaylistRepositoryImpl(
         mediaRepository.observeAllMedia().map { all ->
             when (playlistId) {
                 SystemPlaylist.ID_RECENTLY_ADDED -> {
+                    // Fixed sort: newest first. Uses dateAdded, falling back to firstSeenAt
+                    // for rows indexed before dateAdded existed.
                     val cutoff = System.currentTimeMillis() - sevenDaysMs
-                    all.filter { it.firstSeenAt >= cutoff }
-                        .sortedByDescending { it.firstSeenAt }
+                    all.filter {
+                        val ts = if (it.dateAdded > 0L) it.dateAdded else it.firstSeenAt
+                        ts >= cutoff
+                    }.sortedByDescending {
+                        if (it.dateAdded > 0L) it.dateAdded else it.firstSeenAt
+                    }
                 }
                 SystemPlaylist.ID_FAVOURITES -> {
                     val favUris = getFavouriteUris()
-                    all.filter { it.uri in favUris }
+                    val inFav = all.filter { it.uri in favUris }
+                    applyCustomOrder(playlistId, inFav)
                 }
                 else -> {
                     val uris = getPlaylistItemUris(playlistId)
-                    val uriIndex = uris.withIndex().associate { (i, uri) -> uri to i }
-                    all.filter { it.uri in uriIndex }.sortedBy { uriIndex[it.uri] }
+                    val uriSet = uris.toSet()
+                    val inPlaylist = all.filter { it.uri in uriSet }
+                    applyCustomOrder(playlistId, inPlaylist)
                 }
             }
         }.flowOn(Dispatchers.IO)
+
+    /**
+     * Orders [items] by the saved CustomOrder for [containerId]. Items without a saved
+     * position fall to the end in their existing order. If no custom order exists, returns
+     * [items] unchanged (caller's natural order = original indexed order).
+     */
+    private fun applyCustomOrder(containerId: String, items: List<MediaItem>): List<MediaItem> {
+        val order = getCustomOrderMap(containerId)
+        if (order.isEmpty()) return items
+        return items.sortedBy { order[it.uri] ?: Int.MAX_VALUE }
+    }
+
+    private fun getCustomOrderMap(containerId: String): Map<String, Int> {
+        val map = mutableMapOf<String, Int>()
+        runCatching {
+            db.readableDatabase.rawQuery(
+                "SELECT uri, position FROM CustomOrder WHERE containerId = ? ORDER BY position ASC",
+                arrayOf(containerId)
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    map[cursor.getString(0)] = cursor.getInt(1)
+                }
+            }
+        }
+        return map
+    }
 
     override suspend fun addToFavourites(uri: String) = withContext(Dispatchers.IO) {
         db.writableDatabase.insertWithOnConflict(
@@ -153,6 +187,30 @@ class PlaylistRepositoryImpl(
         )
         Unit
     }
+
+    override suspend fun saveCustomOrder(containerId: String, orderedUris: List<String>) =
+        withContext(Dispatchers.IO) {
+            val write = db.writableDatabase
+            write.beginTransaction()
+            try {
+                write.delete("CustomOrder", "containerId = ?", arrayOf(containerId))
+                orderedUris.forEachIndexed { index, uri ->
+                    write.insertWithOnConflict(
+                        "CustomOrder", null,
+                        ContentValues().apply {
+                            put("containerId", containerId)
+                            put("uri", uri)
+                            put("position", index)
+                        },
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+                write.setTransactionSuccessful()
+            } finally {
+                write.endTransaction()
+            }
+            Unit
+        }
 
     private fun observeUserPlaylists(): Flow<List<Playlist>> = flow {
         val playlists = mutableListOf<Playlist>()
