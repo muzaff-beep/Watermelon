@@ -19,7 +19,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+        // MediaController / SessionToken in MainActivity are @UnstableApi.
+        freeCompilerArgs += "-opt-in=androidx.media3.common.util.UnstableApi"
+    }
 }
 
 dependencies {
@@ -28,7 +32,6 @@ dependencies {
     implementation(project(":library-storage"))
     implementation(project(":subtitle-engine"))
     implementation(project(":common-interfaces"))
-    implementation(libs.androidx.media3.session)
 
     implementation(libs.androidx.core)
     implementation(libs.androidx.activity.compose)
@@ -38,6 +41,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
     implementation(libs.kotlinx.coroutines.android)
 }
