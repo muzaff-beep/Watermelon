@@ -6,20 +6,25 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
 
 /**
  * Settings screen. Stateless over [SettingsState] + change callbacks — the host binds to
- * DataStore. All groups from Manifest §9.
+ * DataStore. Layout matches wireframe #6: a titled header, then grouped "cards", each with
+ * a small colored eyebrow label above it. Folder visibility is a navigation row.
+ *
+ * This is a LAYOUT rebuild only — SettingsState and all callbacks are unchanged.
  */
 data class SettingsState(
     val pureDark: Boolean            = true,
@@ -32,7 +37,6 @@ data class SettingsState(
     val vhsIntensity: VhsIntensity   = VhsIntensity.MED,
     val memorySafety: Boolean        = false,
     val fullFolderAccess: Boolean    = false,
-    // Player settings
     val screenshotMode: ScreenshotMode = ScreenshotMode.SINGLE,
     val folderVisibility: Map<String, Boolean> = emptyMap()
 )
@@ -50,88 +54,152 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
-        modifier = modifier.fillMaxWidth().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        item { GroupHeader("Theme") }
-        item { ToggleRow("Pure Dark", state.pureDark) { onStateChange(state.copy(pureDark = it)) } }
-        item { ToggleRow("Forced RTL overrides", state.forcedRtl) { onStateChange(state.copy(forcedRtl = it)) } }
-        item { HorizontalDivider() }
-
-        item { GroupHeader("View Defaults") }
-        item { ToggleRow("Grid layout default", state.gridDefault) { onStateChange(state.copy(gridDefault = it)) } }
-        item { ToggleRow("Show thumbnails", state.showThumbnails) { onStateChange(state.copy(showThumbnails = it)) } }
-        item { ToggleRow("Show durations", state.showDurations) { onStateChange(state.copy(showDurations = it)) } }
-        item { ToggleRow("Show file size", state.showFileSize) { onStateChange(state.copy(showFileSize = it)) } }
-        item { HorizontalDivider() }
-
-        item { GroupHeader("VHS Effect") }
-        item { ToggleRow("VHS enabled", state.vhsEnabled) { onStateChange(state.copy(vhsEnabled = it)) } }
+        // Screen title
         item {
             Text(
-                "Intensity: ${state.vhsIntensity.name.lowercase()}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text       = "Settings",
+                style      = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
             )
         }
+
+        // ── Appearance ──────────────────────────────────────────────────────
         item {
-            ToggleRow("Memory-safety (force Tier B)", state.memorySafety) {
-                onStateChange(state.copy(memorySafety = it))
+            SettingsGroup("APPEARANCE") {
+                ToggleRow("Pure dark theme", state.pureDark) {
+                    onStateChange(state.copy(pureDark = it))
+                }
+                ToggleRow("Force RTL overrides", state.forcedRtl) {
+                    onStateChange(state.copy(forcedRtl = it))
+                }
             }
         }
-        item { HorizontalDivider() }
 
-        item { GroupHeader("Player") }
+        // ── View defaults ───────────────────────────────────────────────────
         item {
-            ToggleRow(
-                label   = "Burst screenshot (4 frames before + current + 4 after)",
-                checked = state.screenshotMode == ScreenshotMode.BURST
-            ) {
-                onStateChange(
-                    state.copy(screenshotMode = if (it) ScreenshotMode.BURST else ScreenshotMode.SINGLE)
+            SettingsGroup("VIEW DEFAULTS") {
+                ToggleRow("Grid layout by default", state.gridDefault) {
+                    onStateChange(state.copy(gridDefault = it))
+                }
+                ToggleRow("Show thumbnails", state.showThumbnails) {
+                    onStateChange(state.copy(showThumbnails = it))
+                }
+                ToggleRow("Show durations", state.showDurations) {
+                    onStateChange(state.copy(showDurations = it))
+                }
+                ToggleRow("Show file size", state.showFileSize) {
+                    onStateChange(state.copy(showFileSize = it))
+                }
+            }
+        }
+
+        // ── Player ──────────────────────────────────────────────────────────
+        item {
+            SettingsGroup("PLAYER") {
+                ToggleRow(
+                    label   = "Burst screenshot (9 frames)",
+                    checked = state.screenshotMode == ScreenshotMode.BURST
+                ) {
+                    onStateChange(
+                        state.copy(screenshotMode = if (it) ScreenshotMode.BURST else ScreenshotMode.SINGLE)
+                    )
+                }
+                ToggleRow("VHS effect", state.vhsEnabled) {
+                    onStateChange(state.copy(vhsEnabled = it))
+                }
+                NavRow(
+                    label = "VHS intensity",
+                    value = state.vhsIntensity.name.lowercase().replaceFirstChar { it.uppercase() },
+                    onClick = {
+                        // Cycle intensity OFF -> LOW -> MED -> HIGH -> OFF
+                        val next = VhsIntensity.values()[(state.vhsIntensity.ordinal + 1) % VhsIntensity.values().size]
+                        onStateChange(state.copy(vhsIntensity = next))
+                    }
                 )
             }
         }
-        item { HorizontalDivider() }
 
-        item { GroupHeader("System") }
+        // ── System ──────────────────────────────────────────────────────────
         item {
-            ToggleRow("Full folder access (power-user)", state.fullFolderAccess) {
-                onStateChange(state.copy(fullFolderAccess = it))
+            SettingsGroup("SYSTEM") {
+                ToggleRow("Memory-safety (force Tier B)", state.memorySafety) {
+                    onStateChange(state.copy(memorySafety = it))
+                }
+                ToggleRow("Full folder access (power-user)", state.fullFolderAccess) {
+                    onStateChange(state.copy(fullFolderAccess = it))
+                }
+                NavRow(
+                    label = "Folder visibility",
+                    value = "Manage",
+                    accent = true,
+                    onClick = onFolderVisibilityClick
+                )
             }
         }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Folder visibility", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = onFolderVisibilityClick) { Text("Manage") }
+    }
+}
+
+/** A titled card group: small colored eyebrow label, then a rounded surface of rows. */
+@Composable
+private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text       = title,
+            color      = MaterialTheme.colorScheme.primary,
+            fontSize   = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier   = Modifier.padding(start = 4.dp)
+        )
+        Surface(
+            shape  = RoundedCornerShape(12.dp),
+            color  = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                content()
             }
         }
     }
 }
 
 @Composable
-private fun GroupHeader(title: String) {
-    Text(
-        text       = title,
-        style      = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.SemiBold,
-        color      = MaterialTheme.colorScheme.primary,
-        modifier   = Modifier.padding(top = 8.dp)
-    )
-}
-
-@Composable
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f).padding(end = 12.dp)
+        )
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** A row that shows a value and navigates / cycles on tap. */
+@Composable
+private fun NavRow(label: String, value: String, onClick: () -> Unit, accent: Boolean = false) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Text(
+            text = "$value ›",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (accent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (accent) FontWeight.SemiBold else FontWeight.Normal
+        )
     }
 }
