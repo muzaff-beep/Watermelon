@@ -107,11 +107,17 @@ class PlaybackControllerImpl(
     }
 
     override fun play(uri: String, startPositionMs: Long) {
+        // Guard: if this uri is already loaded, don't reload it (prevents duplicate
+        // play() calls from recomposition restarting the video).
+        val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        if (currentUri == uri && player.playbackState != androidx.media3.common.Player.STATE_IDLE) {
+            com.watermelon.common.util.FileLogger.i("Playback", "play() skipped — uri already loaded")
+            player.playWhenReady = true
+            return
+        }
         com.watermelon.common.util.FileLogger.i("Playback", "play() called uri=$uri start=$startPositionMs")
         _playbackState.value = PlaybackState.LOADING
 
-        // Attach metadata so the notification shows a title (filename) — artwork is added
-        // by the session from the media if available.
         val title = uri.substringAfterLast('/').substringBeforeLast('.')
             .ifEmpty { "Video" }
         val metadata = androidx.media3.common.MediaMetadata.Builder()
