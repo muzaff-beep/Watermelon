@@ -54,18 +54,14 @@ class VhsReverseSound {
         genThread = Thread {
             val chunk = ShortArray(1024)
             var phase = 0.0
-            var wobble = 0.0
             while (running) {
-                // base freq scales with rewind speed; faint volume.
-                val baseFreq = 60.0 + speed * 22.0
+                // base freq scales with rewind speed; faint, dry tone (no harmonics/wobble).
+                val baseFreq = 70.0 + speed * 18.0
                 for (i in chunk.indices) {
-                    wobble += 0.0006
-                    val f = baseFreq * (1.0 + 0.05 * sin(wobble))
-                    phase += 2.0 * PI * f / sampleRate
+                    phase += 2.0 * PI * baseFreq / sampleRate
                     if (phase > 2 * PI) phase -= 2 * PI
-                    // sawtooth-ish: mix sine + its harmonic for a tape-motor timbre
-                    val s = 0.6 * sin(phase) + 0.25 * sin(2 * phase) + 0.1 * sin(3 * phase)
-                    chunk[i] = (s * 0.18 * Short.MAX_VALUE).toInt().toShort()  // faint
+                    val s = sin(phase)
+                    chunk[i] = (s * 0.14 * Short.MAX_VALUE).toInt().toShort()  // faint, dry
                 }
                 track?.write(chunk, 0, chunk.size)
             }
